@@ -49,7 +49,7 @@ export function createYTPlayer(
       height: '1', width: '1',
       playerVars: { autoplay: 0, controls: 0, playsinline: 1, rel: 0, fs: 0 },
       events: {
-        onReady: () => resolve(),
+        onReady: () => { player.setVolume(currentVolume); player.unMute(); resolve(); },
         onStateChange: (e: any) => onStateChange(e.data),
       },
     });
@@ -60,7 +60,12 @@ export function ytLoadVideo(videoId: string): void {
   player?.loadVideoById(videoId);
 }
 
-export function ytPlay(): void { player?.playVideo(); }
+export function ytPlay(): void {
+  if (!player) return;
+  player.unMute();           // Chrome autoplay policy → muted by default
+  player.setVolume(currentVolume);
+  player.playVideo();
+}
 export function ytPause(): void { player?.pauseVideo(); }
 export function ytSeek(ms: number): void { player?.seekTo(ms / 1000, true); }
 export function ytGetCurrentTime(): number {
@@ -69,4 +74,11 @@ export function ytGetCurrentTime(): number {
 export function ytGetDuration(): number {
   return Math.round((player?.getDuration?.() ?? 0) * 1000);
 }
-export function ytSetVolume(vol: number): void { player?.setVolume(Math.round(vol)); }
+
+let currentVolume = 5;
+export function ytSetVolume(vol: number): void {
+  currentVolume = Math.round(vol);
+  if (!player) return;
+  player.unMute();
+  player.setVolume(currentVolume);
+}

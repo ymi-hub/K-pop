@@ -7,11 +7,11 @@ import {
   Dimensions,
   StatusBar,
   Animated,
+  Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import { colors, spacing, borderRadius } from '../theme';
 import { Track, LyricLine, VocabEntry } from '../types';
@@ -51,6 +51,88 @@ function formatTime(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+// 웹 전용 볼륨 슬라이더
+function VolumeSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  if (Platform.OS === 'web') {
+    const handleChange = (e: any) => onChange(Number(e.target.value));
+    return (
+      <input
+        type="range"
+        min={0}
+        max={100}
+        value={value}
+        onChange={handleChange}
+        onInput={handleChange}
+        style={{
+          flex: 1,
+          accentColor: '#FC3C44',
+          cursor: 'pointer',
+          height: 4,
+          margin: '0 8px',
+        } as any}
+      />
+    );
+  }
+  return (
+    <Slider
+      style={{ flex: 1, height: 24 }}
+      minimumValue={0}
+      maximumValue={100}
+      value={value}
+      onValueChange={onChange}
+      minimumTrackTintColor="rgba(255,255,255,0.4)"
+      maximumTrackTintColor="rgba(255,255,255,0.15)"
+      thumbTintColor="rgba(255,255,255,0.6)"
+    />
+  );
+}
+
+// 웹 전용 프로그레스 슬라이더
+function ProgressSlider({ value, max, onComplete }: { value: number; max: number; onComplete: (v: number) => void }) {
+  if (Platform.OS === 'web') {
+    return (
+      <input
+        type="range"
+        min={0}
+        max={max || 1}
+        value={value}
+        onChange={(e) => onComplete(Number((e.target as HTMLInputElement).value))}
+        style={{
+          width: '100%',
+          accentColor: '#fff',
+          cursor: 'pointer',
+          height: 4,
+        } as any}
+      />
+    );
+  }
+  return (
+    <Slider
+      style={{ width: '100%', height: 32 }}
+      minimumValue={0}
+      maximumValue={max || 1}
+      value={value}
+      onSlidingComplete={onComplete}
+      minimumTrackTintColor="rgba(255,255,255,0.9)"
+      maximumTrackTintColor="rgba(255,255,255,0.25)"
+      thumbTintColor="#fff"
+    />
+  );
+}
+
+// 배경 (BlurView+Gradient)은 track이 바뀔 때만 리렌더 — currentMs 500ms 타이머와 무관
+const PlayerBackground = React.memo(({ uri }: { uri: string }) => (
+  <>
+    <Image source={{ uri }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
+    <BlurView intensity={95} style={StyleSheet.absoluteFillObject} tint="dark" />
+    <LinearGradient
+      colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.93)']}
+      style={StyleSheet.absoluteFillObject}
+      locations={[0, 0.38, 1]}
+    />
+  </>
+));
+
 export default function PlayerScreen({
   track, lyrics, isPlaying, currentMs, durationMs,
   lyricsOffset, shuffleMode, repeatMode, isLiked,
@@ -59,7 +141,7 @@ export default function PlayerScreen({
 }: Props) {
   const [showLyrics, setShowLyrics] = useState(false);
   const [activeVocab, setActiveVocab] = useState<VocabEntry | null>(null);
-  const [volume, setVolume] = useState(80);
+  const [volume, setVolume] = useState(5);
   const [showRemaining, setShowRemaining] = useState(true);
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
 
@@ -70,9 +152,12 @@ export default function PlayerScreen({
     }).start();
   }, [isPlaying]);
 
-  // when lyrics become available, don't auto-show; let user toggle
-  const hasLyrics = lyrics.length > 0;
+  const handleVolumeChange = (v: number) => {
+    setVolume(v);
+    ytSetVolume(v);
+  };
 
+  const hasLyrics = lyrics.length > 0;
   const adjustedMs = currentMs + lyricsOffset;
   const currentLineIndex = (() => {
     if (!hasLyrics || adjustedMs <= 0) return -1;
@@ -87,20 +172,15 @@ export default function PlayerScreen({
     ? `-${formatTime(durationMs - currentMs)}`
     : formatTime(durationMs);
 
-  // Shared bottom controls block
+  const repeatIcon = repeatMode === 'one' ? '↻¹' : '↻';
+  const repeatColor = repeatMode !== 'off' ? colors.primary : 'rgba(255,255,255,0.65)';
+
   const ControlsBlock = () => (
     <View style={styles.controlsArea}>
       {/* Progress */}
-      <Slider
-        style={styles.slider}
-        minimumValue={0}
-        maximumValue={durationMs || 1}
-        value={currentMs}
-        onSlidingComplete={onSeek}
-        minimumTrackTintColor="rgba(255,255,255,0.9)"
-        maximumTrackTintColor="rgba(255,255,255,0.25)"
-        thumbTintColor="#fff"
-      />
+      <View style={styles.sliderWrapper}>
+        <ProgressSlider value={currentMs} max={durationMs} onComplete={onSeek} />
+      </View>
       <View style={styles.timeRow}>
         <Text style={styles.timeText}>{formatTime(currentMs)}</Text>
         <TouchableOpacity onPress={() => setShowRemaining((r) => !r)}>
@@ -108,54 +188,43 @@ export default function PlayerScreen({
         </TouchableOpacity>
       </View>
 
-      {/* Main controls: shuffle / prev / play / next / repeat */}
+      {/* Main controls */}
       <View style={styles.mainControls}>
+        {/* Shuffle */}
         <TouchableOpacity onPress={onToggleShuffle} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} style={styles.sideBtn}>
-          <Ionicons name="shuffle" size={24} color={shuffleMode ? colors.primary : 'rgba(255,255,255,0.65)'} />
+          <Text style={[styles.sideBtnIcon, shuffleMode && { color: colors.primary }]}>⇌</Text>
           {shuffleMode && <View style={styles.activeDot} />}
         </TouchableOpacity>
 
+        {/* Prev */}
         <TouchableOpacity onPress={onPrev} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <Ionicons name="play-skip-back" size={38} color="#fff" />
+          <Text style={styles.skipIcon}>⏮</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={onPlayPause} style={styles.playBtn}>
-          <Ionicons
-            name={isPlaying ? 'pause-circle' : 'play-circle'}
-            size={74}
-            color="#fff"
-          />
+        {/* Play / Pause */}
+        <TouchableOpacity onPress={onPlayPause} style={styles.playBtnOuter}>
+          <View style={styles.playBtnCircle}>
+            <Text style={styles.playBtnIcon}>{isPlaying ? '⏸' : '▶'}</Text>
+          </View>
         </TouchableOpacity>
 
+        {/* Next */}
         <TouchableOpacity onPress={onNext} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <Ionicons name="play-skip-forward" size={38} color="#fff" />
+          <Text style={styles.skipIcon}>⏭</Text>
         </TouchableOpacity>
 
+        {/* Repeat */}
         <TouchableOpacity onPress={onToggleRepeat} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} style={styles.sideBtn}>
-          <Ionicons
-            name={repeatMode === 'one' ? 'repeat' : 'repeat'}
-            size={24}
-            color={repeatMode !== 'off' ? colors.primary : 'rgba(255,255,255,0.65)'}
-          />
-          {repeatMode === 'one' && <Text style={styles.repeatOneLabel}>1</Text>}
+          <Text style={[styles.sideBtnIcon, { color: repeatColor }]}>{repeatIcon}</Text>
           {repeatMode !== 'off' && <View style={styles.activeDot} />}
         </TouchableOpacity>
       </View>
 
       {/* Volume */}
       <View style={styles.volumeRow}>
-        <Ionicons name="volume-low" size={18} color="rgba(255,255,255,0.45)" />
-        <Slider
-          style={styles.volumeSlider}
-          minimumValue={0}
-          maximumValue={100}
-          value={volume}
-          onValueChange={(v) => { setVolume(v); ytSetVolume(v); }}
-          minimumTrackTintColor="rgba(255,255,255,0.4)"
-          maximumTrackTintColor="rgba(255,255,255,0.15)"
-          thumbTintColor="rgba(255,255,255,0.6)"
-        />
-        <Ionicons name="volume-high" size={18} color="rgba(255,255,255,0.45)" />
+        <Text style={styles.volIcon}>🔈</Text>
+        <VolumeSlider value={volume} onChange={handleVolumeChange} />
+        <Text style={styles.volIcon}>🔊</Text>
       </View>
 
       {/* Bottom row: sync + lyrics toggle */}
@@ -163,7 +232,7 @@ export default function PlayerScreen({
         {hasLyrics ? (
           <View style={styles.syncRow}>
             <TouchableOpacity style={styles.syncBtn} onPress={() => onLyricsOffsetChange(lyricsOffset - OFFSET_STEP)}>
-              <Ionicons name="remove" size={13} color="rgba(255,255,255,0.5)" />
+              <Text style={styles.syncBtnText}>−</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.syncLabel} onPress={() => onLyricsOffsetChange(0)}>
               <Text style={[styles.syncText, lyricsOffset !== 0 && { color: colors.primary }]}>
@@ -171,7 +240,7 @@ export default function PlayerScreen({
               </Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.syncBtn} onPress={() => onLyricsOffsetChange(lyricsOffset + OFFSET_STEP)}>
-              <Ionicons name="add" size={13} color="rgba(255,255,255,0.5)" />
+              <Text style={styles.syncBtnText}>+</Text>
             </TouchableOpacity>
           </View>
         ) : <View />}
@@ -181,14 +250,8 @@ export default function PlayerScreen({
             style={[styles.lyricsToggleBtn, showLyrics && styles.lyricsToggleBtnActive]}
             onPress={() => setShowLyrics((v) => !v)}
           >
-            <Ionicons
-              name="chatbubble-ellipses"
-              size={20}
-              color={showLyrics ? colors.primary : 'rgba(255,255,255,0.55)'}
-            />
-            <Text style={[styles.lyricsToggleText, showLyrics && { color: colors.primary }]}>
-              가사
-            </Text>
+            <Text style={[styles.lyricsToggleIcon, showLyrics && { color: colors.primary }]}>💬</Text>
+            <Text style={[styles.lyricsToggleText, showLyrics && { color: colors.primary }]}>가사</Text>
           </TouchableOpacity>
         ) : <View />}
       </View>
@@ -199,21 +262,14 @@ export default function PlayerScreen({
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
 
-      {/* Blurred album art background */}
-      <Image source={{ uri: track.albumArt }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
-      <BlurView intensity={95} style={StyleSheet.absoluteFillObject} tint="dark" />
-      <LinearGradient
-        colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.93)']}
-        style={StyleSheet.absoluteFillObject}
-        locations={[0, 0.38, 1]}
-      />
+      <PlayerBackground uri={track.albumArt} />
 
       {showLyrics && hasLyrics ? (
-        /* ── LYRICS MODE ─────────────────────────────── */
         <>
           <View style={styles.lyricsHeader}>
-            <TouchableOpacity onPress={onBack} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Ionicons name="chevron-down" size={28} color="#fff" />
+            <TouchableOpacity onPress={onBack} style={styles.homeBtn}>
+              <Text style={styles.homeBtnIcon}>⌂</Text>
+              <Text style={styles.homeBtnText}>홈</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.lyricsHeaderCenter} activeOpacity={0.7} onPress={() => setShowLyrics(false)}>
@@ -229,7 +285,7 @@ export default function PlayerScreen({
               onPress={() => setShowLyrics(false)}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Ionicons name="chatbubble-ellipses" size={22} color={colors.primary} />
+              <Text style={styles.lyricsActiveBtnText}>닫기</Text>
             </TouchableOpacity>
           </View>
 
@@ -242,29 +298,25 @@ export default function PlayerScreen({
             />
           </View>
 
-          <ControlsBlock />
+          {ControlsBlock()}
         </>
       ) : (
-        /* ── ALBUM ART MODE ──────────────────────────── */
         <>
           <View style={styles.header}>
-            <TouchableOpacity onPress={onBack} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Ionicons name="chevron-down" size={28} color="#fff" />
+            <TouchableOpacity onPress={onBack} style={styles.homeBtn}>
+              <Text style={styles.homeBtnIcon}>⌂</Text>
+              <Text style={styles.homeBtnText}>홈</Text>
             </TouchableOpacity>
             <Text style={styles.headerTitle}>지금 재생 중</Text>
-            <TouchableOpacity hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Ionicons name="ellipsis-horizontal-circle-outline" size={26} color="#fff" />
-            </TouchableOpacity>
+            <View style={{ width: 60 }} />
           </View>
 
-          {/* Album art – scales with playback state */}
           <View style={styles.albumSection}>
             <Animated.View style={[styles.albumShadow, { transform: [{ scale: scaleAnim }] }]}>
               <Image source={{ uri: track.albumArt }} style={styles.albumArt} contentFit="cover" />
             </Animated.View>
           </View>
 
-          {/* Song name + heart */}
           <View style={styles.songInfoArea}>
             <View style={styles.songInfoRow}>
               <View style={styles.songTexts}>
@@ -272,16 +324,14 @@ export default function PlayerScreen({
                 <Text style={styles.artistName} numberOfLines={1}>{track.artists.join(', ')}</Text>
               </View>
               <TouchableOpacity onPress={onToggleLike} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <Ionicons
-                  name={isLiked ? 'heart' : 'heart-outline'}
-                  size={28}
-                  color={isLiked ? colors.primary : '#fff'}
-                />
+                <Text style={[styles.heartIcon, isLiked && { color: colors.primary }]}>
+                  {isLiked ? '♥' : '♡'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          <ControlsBlock />
+          {ControlsBlock()}
         </>
       )}
 
@@ -305,174 +355,132 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sm,
   },
   headerTitle: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 13, fontWeight: '600',
     color: 'rgba(255,255,255,0.75)',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    textTransform: 'uppercase', letterSpacing: 0.6,
   },
+  homeBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 16, paddingVertical: 9,
+    borderRadius: borderRadius.full,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
+  },
+  homeBtnIcon: { fontSize: 18, color: '#fff' },
+  homeBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
 
   /* ── Album art ── */
   albumSection: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 36,
+    flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 36,
   },
   albumShadow: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 22 },
-    shadowOpacity: 0.65,
-    shadowRadius: 32,
-    elevation: 20,
-    borderRadius: 12,
+    shadowOpacity: 0.65, shadowRadius: 32, elevation: 20, borderRadius: 12,
   },
-  albumArt: {
-    width: ALBUM_ART_SIZE,
-    height: ALBUM_ART_SIZE,
-    borderRadius: 12,
-  },
+  albumArt: { width: ALBUM_ART_SIZE, height: ALBUM_ART_SIZE, borderRadius: 12 },
 
   /* ── Song info ── */
-  songInfoArea: {
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.sm,
-  },
-  songInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
+  songInfoArea: { paddingHorizontal: spacing.xl, paddingBottom: spacing.sm },
+  songInfoRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   songTexts: { flex: 1 },
-  songName: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  artistName: {
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.65)',
-    fontWeight: '500',
-  },
+  songName: { fontSize: 24, fontWeight: '700', color: '#fff', marginBottom: 4 },
+  artistName: { fontSize: 18, color: 'rgba(255,255,255,0.65)', fontWeight: '500' },
+  heartIcon: { fontSize: 28, color: '#fff' },
 
   /* ── Controls ── */
-  controlsArea: {
-    paddingHorizontal: spacing.xl,
-    paddingBottom: 40,
-  },
-  slider: { width: '100%', height: 32 },
+  controlsArea: { paddingHorizontal: spacing.xl, paddingBottom: 40 },
+  sliderWrapper: { width: '100%', marginBottom: 0 },
   timeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: -8,
-    marginBottom: 18,
+    flexDirection: 'row', justifyContent: 'space-between',
+    marginTop: 4, marginBottom: 18,
   },
-  timeText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: 'rgba(255,255,255,0.5)',
-  },
+  timeText: { fontSize: 12, fontWeight: '500', color: 'rgba(255,255,255,0.5)' },
+
   mainControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 22,
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', marginBottom: 22,
   },
   sideBtn: { alignItems: 'center', width: 36 },
-  playBtn: {
+  sideBtnIcon: { fontSize: 22, color: 'rgba(255,255,255,0.65)' },
+  skipIcon: { fontSize: 34, color: '#fff' },
+
+  /* Play button - white circle */
+  playBtnOuter: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
+    shadowOpacity: 0.4, shadowRadius: 8,
   },
+  playBtnCircle: {
+    width: 72, height: 72, borderRadius: 36,
+    backgroundColor: '#fff',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  playBtnIcon: { fontSize: 30, color: '#000', marginLeft: 4 },
+
   activeDot: {
-    width: 4, height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.primary,
-    marginTop: 3,
-  },
-  repeatOneLabel: {
-    position: 'absolute',
-    top: -2, right: -2,
-    fontSize: 8, fontWeight: '800',
-    color: colors.primary,
+    width: 4, height: 4, borderRadius: 2,
+    backgroundColor: colors.primary, marginTop: 3,
   },
 
   /* Volume */
   volumeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 18,
+    flexDirection: 'row', alignItems: 'center',
+    gap: 6, marginBottom: 18,
   },
-  volumeSlider: { flex: 1, height: 24 },
+  volIcon: { fontSize: 16 },
 
   /* Bottom row */
   bottomRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
   syncRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: borderRadius.full,
-    overflow: 'hidden',
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: borderRadius.full, overflow: 'hidden',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
   },
-  syncBtn: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  syncBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  syncBtnText: { fontSize: 22, fontWeight: '300', color: '#fff', lineHeight: 28 },
   syncLabel: {
-    paddingHorizontal: 4,
-    height: 28,
-    minWidth: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 10, height: 44, minWidth: 56,
+    alignItems: 'center', justifyContent: 'center',
   },
-  syncText: { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.5)' },
+  syncText: { fontSize: 13, fontWeight: '700', color: 'rgba(255,255,255,0.7)' },
   lyricsToggleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 18, paddingVertical: 10,
     borderRadius: borderRadius.full,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
   },
-  lyricsToggleBtnActive: { backgroundColor: 'rgba(252,60,68,0.15)' },
-  lyricsToggleText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.55)',
+  lyricsToggleBtnActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
+  lyricsToggleIcon: { fontSize: 18, color: '#fff' },
+  lyricsToggleText: { fontSize: 15, fontWeight: '700', color: '#fff' },
 
-  /* ── Lyrics mode header ── */
+  /* ── Lyrics mode ── */
   lyricsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: 56,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.sm,
+    flexDirection: 'row', alignItems: 'center',
+    paddingTop: 56, paddingHorizontal: spacing.lg, paddingBottom: spacing.md,
     gap: 12,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(0,0,0,0.3)',
   },
   lyricsHeaderCenter: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12,
   },
-  lyricsThumb: { width: 44, height: 44, borderRadius: 8 },
+  lyricsThumb: { width: 48, height: 48, borderRadius: 10 },
   lyricsHeaderInfo: { flex: 1 },
-  lyricsHeaderTitle: {
-    fontSize: 14, fontWeight: '700', color: '#fff', marginBottom: 2,
-  },
-  lyricsHeaderArtist: {
-    fontSize: 12, color: 'rgba(255,255,255,0.6)',
-  },
+  lyricsHeaderTitle: { fontSize: 16, fontWeight: '700', color: '#fff', marginBottom: 2 },
+  lyricsHeaderArtist: { fontSize: 13, color: 'rgba(255,255,255,0.65)' },
   lyricsActiveBtn: {
-    padding: 6,
-    backgroundColor: 'rgba(252,60,68,0.15)',
+    paddingHorizontal: 16, paddingVertical: 9,
+    backgroundColor: colors.primary,
     borderRadius: borderRadius.full,
   },
+  lyricsActiveBtnText: { fontSize: 14, fontWeight: '700', color: '#fff' },
   lyricsArea: { flex: 1, overflow: 'hidden' },
 });

@@ -10,9 +10,11 @@ export async function searchYouTube(trackName: string, artist: string): Promise<
   }
   // 1순위: official audio (MV보다 전주가 짧아 가사 싱크 정확)
   // 2순위: topic 채널 (YouTube Music 자동 업로드, 원본과 동일)
+  // topic 채널 = YouTube Music 자동 업로드 (Apple Music·iTunes와 동일한 마스터)
+  // official audio보다 가사 싱크 정확
   const queries = [
-    `${trackName} ${artist} official audio`,
     `${trackName} ${artist} topic`,
+    `${trackName} ${artist} official audio`,
     `${trackName} ${artist} audio`,
   ];
 

@@ -108,48 +108,79 @@ function parsePlainLyrics(raw: string): LyricLine[] {
     }));
 }
 
-// 번역 캐시 (같은 단어/문장 반복 요청 방지)
+// 번역 캐시
 const translationCache = new Map<string, string>();
 
-// 영→한 번역: 3개 API를 동시에 요청해 가장 빠른 결과 사용
+// Google 무료 번역 엔드포인트 (translate.google.com 동일 엔진, 키 불필요)
+async function tryGoogle(text: string): Promise<string> {
+  const url =
+    `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(text)}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+  if (!res.ok) throw new Error('fail');
+  const data = await res.json();
+  // 응답: [[[번역문, 원문, ...], ...]]  — 세그먼트 합치기
+  const r = ((data?.[0] ?? []) as any[]).map((s: any) => s?.[0] ?? '').join('').trim();
+  if (!r || r.toLowerCase() === text.toLowerCase()) throw new Error('bad');
+  return r;
+}
+
+async function tryMyMemory(text: string): Promise<string> {
+  const res = await fetch(
+    `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|ko`,
+    { signal: AbortSignal.timeout(4000) }
+  );
+  const data = await res.json();
+  const r = (data?.responseData?.translatedText ?? '').trim();
+  if (!r || r.startsWith('MYMEMORY WARNING') || r.toLowerCase() === text.toLowerCase())
+    throw new Error('bad');
+  return r;
+}
+
+// 문장 번역: Google + MyMemory 중 빠른 쪽
 export async function translateToKorean(text: string): Promise<string> {
   const key = text.trim().toLowerCase();
   if (translationCache.has(key)) return translationCache.get(key)!;
-
-  const tryLingva = async (host: string): Promise<string> => {
-    const res = await fetch(`${host}/api/v1/en/ko/${encodeURIComponent(text)}`, {
-      signal: AbortSignal.timeout(3000),
-    });
-    if (!res.ok) throw new Error('fail');
-    const data = await res.json();
-    const r = data?.translation ?? '';
-    if (!r || r.includes('MYMEMORY') || r === text) throw new Error('bad');
-    return r;
-  };
-
-  const tryMyMemory = async (): Promise<string> => {
-    const res = await fetch(
-      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|ko`,
-      { signal: AbortSignal.timeout(3000) }
-    );
-    const data = await res.json();
-    const r = data?.responseData?.translatedText ?? '';
-    if (!r || r.startsWith('MYMEMORY WARNING') || r === text) throw new Error('bad');
-    return r;
-  };
-
   try {
-    // 3개 동시 요청 → 가장 빠른 성공 결과 사용
-    const result = await Promise.any([
-      tryLingva('https://lingva.ml'),
-      tryLingva('https://translate.plausibility.cloud'),
-      tryMyMemory(),
-    ]);
+    const result = await Promise.any([tryGoogle(text), tryMyMemory(text)]);
     translationCache.set(key, result);
     return result;
   } catch {
     return '';
   }
+}
+
+// 단어 번역: Google 이중언어 사전(dt=bd) → 가장 첫 번째(기본) 의미 사용
+// take→가져가다, holding→보유, beautiful→아름다운
+async function translateWordOnly(word: string): Promise<string> {
+  const key = `w:${word}`;
+  if (translationCache.has(key)) return translationCache.get(key)!;
+  try {
+    const url =
+      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&dt=bd&q=${encodeURIComponent(word)}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) throw new Error('fail');
+    const data = await res.json();
+
+    // dt=bd 응답: data[1] = [[품사, [번역1, 번역2, ...]], ...]
+    // 첫 번째 품사의 첫 번째 번역 = 가장 기본 의미
+    const first = (data?.[1]?.[0]?.[1]?.[0] ?? '').trim();
+    if (first && first.toLowerCase() !== word.toLowerCase()) {
+      translationCache.set(key, first);
+      return first;
+    }
+    // 폴백: 일반 번역 세그먼트
+    const seg = ((data?.[0] ?? []) as any[]).map((s: any) => s?.[0] ?? '').join('').trim();
+    if (seg && seg.toLowerCase() !== word.toLowerCase()) {
+      translationCache.set(key, seg);
+      return seg;
+    }
+  } catch {}
+  try {
+    const r = await tryMyMemory(word);
+    translationCache.set(key, r);
+    return r;
+  } catch {}
+  return '';
 }
 
 // 영어 단어 뜻 조회 (Free Dictionary API) + 한국어 번역
@@ -160,7 +191,7 @@ export async function getWordDefinition(word: string): Promise<VocabEntry | null
 
     const [dictRes, koreanMeaning] = await Promise.all([
       fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${cleanWord}`),
-      translateToKorean(cleanWord),
+      translateWordOnly(cleanWord), // 단어는 MyMemory 우선
     ]);
 
     if (!dictRes.ok) {

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useFonts } from 'expo-font';
+import * as Font from 'expo-font';
 import HomeScreen from './src/screens/HomeScreen';
 import PlayerScreen from './src/screens/PlayerScreen';
 import LoginScreen from './src/screens/LoginScreen';
@@ -37,8 +37,8 @@ function saveLiked(set: Set<string>) {
 }
 
 export default function App() {
-  const [fontsLoaded] = useFonts({ ...Ionicons.font });
-  const [screen, setScreen] = useState<Screen>('login');
+  const [fontsLoaded, setFontsLoaded] = useState(true); // 즉시 렌더링, 폰트는 백그라운드 로드
+  const [screen, setScreen] = useState<Screen>('home');
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
@@ -62,6 +62,9 @@ export default function App() {
   const shuffleModeRef = useRef(false);
   const repeatModeRef = useRef<RepeatMode>('off');
 
+  // 앱 시작 시 자동 트랙 로드
+  useEffect(() => { loadTracks(); }, []);
+
   useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
   useEffect(() => { tracksRef.current = tracks; }, [tracks]);
   useEffect(() => { shuffleModeRef.current = shuffleMode; }, [shuffleMode]);
@@ -78,22 +81,46 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // CSS @font-face 직접 주입 — Font.loadAsync보다 안정적
+    if (typeof document !== 'undefined') {
+      const fontMap = Ionicons.font as Record<string, any>;
+      const fontUrl = Object.values(fontMap)[0];
+      if (fontUrl) {
+        const style = document.createElement('style');
+        style.textContent = `@font-face { font-family: 'Ionicons'; src: url('${fontUrl}') format('truetype'); }`;
+        document.head.appendChild(style);
+      }
+    }
+    Font.loadAsync({ ...Ionicons.font }).catch(() => {});
+
     if (Platform.OS === 'web') {
       initYouTubeAPI().then(() => {
         createYTPlayer((state) => {
           if (state === YT_STATE.PLAYING) {
             setIsPlaying(true);
-            setTimeout(() => {
+            setTimeout(async () => {
               const dur = ytGetDuration();
-              if (dur > 0) {
-                setDurationMs(dur);
-                const itunesDur = currentTrackRef.current?.durationMs ?? 0;
-                if (itunesDur > 0) {
-                  const diffMs = Math.round(dur) - itunesDur;
-                  if (diffMs > 3000 && diffMs < 30000) setLyricsOffset(-diffMs);
+              if (dur <= 0) return;
+              setDurationMs(dur);
+
+              const track = currentTrackRef.current;
+              if (!track) return;
+
+              const diffMs = dur - track.durationMs;
+
+              // YouTube 실제 길이로 가사 재시도 (더 정확한 버전 매칭)
+              if (Math.abs(diffMs) > 1000) {
+                const newLyrics = await getLyrics(track.name, track.artists[0], dur);
+                if (newLyrics.length > 0) {
+                  // 새 가사를 찾았으면 오프셋 초기화
+                  setLyrics(newLyrics);
+                  setLyricsOffset(0);
+                  return;
                 }
+                // 못 찾으면 전주 길이만큼 오프셋 보정 (전주가 더 길면 음수 → 가사 늦게)
+                if (diffMs > 1000 && diffMs < 30000) setLyricsOffset(-diffMs);
               }
-            }, 500);
+            }, 800);
           } else if (state === YT_STATE.PAUSED) {
             setIsPlaying(false);
           } else if (state === YT_STATE.ENDED) {
@@ -112,7 +139,7 @@ export default function App() {
 
   useEffect(() => {
     if (isPlaying) {
-      timerRef.current = setInterval(() => setCurrentMs(ytGetCurrentTime()), 250);
+      timerRef.current = setInterval(() => setCurrentMs(ytGetCurrentTime()), 500);
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
     }
@@ -188,8 +215,6 @@ export default function App() {
   const handleToggleRepeat = () => {
     setRepeatMode((m) => m === 'off' ? 'all' : m === 'all' ? 'one' : 'off');
   };
-
-  if (!fontsLoaded) return null;
 
   if (screen === 'login') return <LoginScreen onStart={loadTracks} />;
 

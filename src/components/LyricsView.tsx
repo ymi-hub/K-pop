@@ -28,15 +28,13 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
   const [translating, setTranslating] = useState(false);
   const lastTapRef = useRef<{ idx: number; time: number } | null>(null);
 
-  // Auto-scroll to current line
   useEffect(() => {
     if (currentLineIndex > 0) {
-      const y = currentLineIndex * 72 - height * 0.25;
+      const y = currentLineIndex * 76 - height * 0.25;
       scrollRef.current?.scrollTo({ y: Math.max(0, y), animated: true });
     }
   }, [currentLineIndex]);
 
-  // Double-tap → translate whole line
   const handleLineTap = async (line: LyricLine, idx: number) => {
     const now = Date.now();
     const last = lastTapRef.current;
@@ -51,14 +49,6 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
     } else {
       lastTapRef.current = { idx, time: now };
     }
-  };
-
-  // Long press → word definition (first English word)
-  const handleLineLongPress = async (line: LyricLine) => {
-    const words = line.words.map((w) => w.text.replace(/[^a-zA-Z]/g, '')).filter((w) => w.length >= 2);
-    if (words.length === 0) return;
-    const vocab = await getWordDefinition(words[0]);
-    if (vocab) onWordPress(vocab);
   };
 
   if (lyrics.length === 0) {
@@ -76,84 +66,75 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
       showsVerticalScrollIndicator={false}
       contentContainerStyle={styles.content}
     >
-      <View style={{ height: height * 0.1 }} />
+      <View style={{ height: height * 0.08 }} />
 
-      {/* Usage hint */}
-      <View style={styles.hint}>
-        <Text style={styles.hintText}>두 번 탭 → 번역  ·  꾹 누르기 → 단어 뜻</Text>
-      </View>
+      <Text style={styles.hint}>두 번 탭하면 번역 · 단어 탭하면 뜻</Text>
 
       {lyrics.map((line, lineIdx) => {
         const isActive = lineIdx === currentLineIndex;
         const isPast = lineIdx < currentLineIndex;
         const isTranslated = translatedIdx === lineIdx;
 
-        // Collect English words for chips
         const englishWords = line.words
           .map((w) => w.text.replace(/[^a-zA-Z]/g, ''))
           .filter((w) => w.length >= 2);
 
         return (
-          <TouchableOpacity
-            key={lineIdx}
-            style={[styles.lineWrapper, isTranslated && styles.lineWrapperHighlight]}
-            onPress={() => handleLineTap(line, lineIdx)}
-            onLongPress={() => handleLineLongPress(line)}
-            delayLongPress={400}
-            activeOpacity={0.85}
-          >
-            {/* ── Lyric text with word-level karaoke on active line ── */}
-            {isActive ? (
-              <Text style={styles.lineTextActive}>
-                {line.words.map((word, wi) => {
-                  const pastWord = currentMs > word.endMs;
-                  const currentWord = currentMs >= word.startMs && currentMs <= word.endMs;
-                  return (
-                    <Text
-                      key={wi}
-                      style={[
-                        styles.wordBase,
-                        pastWord && styles.wordPast,
-                        currentWord && styles.wordCurrent,
-                        !pastWord && !currentWord && styles.wordFuture,
-                      ]}
-                    >
-                      {word.text}{wi < line.words.length - 1 ? ' ' : ''}
-                    </Text>
-                  );
-                })}
-              </Text>
-            ) : (
-              <Text
-                style={[
-                  styles.lineText,
-                  isPast && styles.lineTextPast,
-                ]}
-              >
-                {line.text}
-              </Text>
-            )}
+          <View key={lineIdx} style={styles.lineBlock}>
+            <TouchableOpacity
+              style={[styles.lineWrapper, isActive && styles.lineWrapperActive]}
+              onPress={() => handleLineTap(line, lineIdx)}
+              activeOpacity={0.75}
+            >
+              {isActive ? (
+                <Text style={styles.lineTextActive}>
+                  {line.words.map((word, wi) => {
+                    const pastWord = currentMs > word.endMs;
+                    const currentWord = currentMs >= word.startMs && currentMs <= word.endMs;
+                    return (
+                      <Text
+                        key={wi}
+                        style={[
+                          styles.wordBase,
+                          pastWord && styles.wordPast,
+                          currentWord && styles.wordCurrent,
+                          !pastWord && !currentWord && styles.wordFuture,
+                        ]}
+                      >
+                        {word.text}{wi < line.words.length - 1 ? ' ' : ''}
+                      </Text>
+                    );
+                  })}
+                </Text>
+              ) : (
+                <Text style={[styles.lineText, isPast && styles.lineTextPast]}>
+                  {line.text}
+                </Text>
+              )}
+            </TouchableOpacity>
 
-            {/* ── Translation box ── */}
+            {/* ── Duolingo-style translation card ── */}
             {isTranslated && (
-              <View style={styles.translationBox}>
+              <View style={styles.translationCard}>
                 {translating ? (
                   <ActivityIndicator size="small" color={colors.primary} />
                 ) : (
                   <>
-                    <Text style={styles.translationText}>{translatedText}</Text>
+                    <Text style={styles.translationKorean}>{translatedText}</Text>
+
                     {englishWords.length > 0 && (
-                      <View style={styles.wordChips}>
+                      <View style={styles.chipRow}>
                         {englishWords.map((word, i) => (
                           <TouchableOpacity
                             key={i}
-                            style={styles.wordChip}
+                            style={styles.chip}
                             onPress={async () => {
                               const vocab = await getWordDefinition(word);
                               if (vocab) onWordPress(vocab);
                             }}
+                            activeOpacity={0.7}
                           >
-                            <Text style={styles.wordChipText}>{word}</Text>
+                            <Text style={styles.chipText}>{word}</Text>
                           </TouchableOpacity>
                         ))}
                       </View>
@@ -162,7 +143,7 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
                 )}
               </View>
             )}
-          </TouchableOpacity>
+          </View>
         );
       })}
 
@@ -173,65 +154,83 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { paddingHorizontal: spacing.xl },
-  emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 40 },
+  content: { paddingHorizontal: spacing.lg },
+  emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyText: { fontSize: 16, color: colors.textTertiary },
 
-  hint: { marginBottom: 20, paddingHorizontal: 4 },
-  hintText: { fontSize: 12, color: 'rgba(255,255,255,0.2)', textAlign: 'center' },
+  hint: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.18)',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+
+  lineBlock: { marginBottom: 4 },
 
   lineWrapper: {
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    borderRadius: borderRadius.md,
-    marginHorizontal: -10,
-    marginBottom: 2,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: borderRadius.lg,
   },
-  lineWrapperHighlight: { backgroundColor: 'rgba(255,255,255,0.06)' },
+  lineWrapperActive: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
 
-  /* Non-active lines */
   lineText: {
-    fontSize: 19,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.28)',
-    lineHeight: 30,
+    fontSize: 20,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.25)',
+    lineHeight: 32,
   },
-  lineTextPast: { color: 'rgba(255,255,255,0.48)' },
+  lineTextPast: { color: 'rgba(255,255,255,0.45)' },
 
-  /* Active line container */
   lineTextActive: {
-    fontSize: 23,
+    fontSize: 24,
     fontWeight: '800',
-    lineHeight: 36,
+    lineHeight: 38,
   },
-
-  /* Word-level karaoke within active line */
-  wordBase: { fontSize: 23, fontWeight: '800' },
-  wordPast: { color: 'rgba(255,255,255,0.92)' },
+  wordBase: { fontSize: 24, fontWeight: '800' },
+  wordPast: { color: 'rgba(255,255,255,0.9)' },
   wordCurrent: { color: '#FFFFFF' },
-  wordFuture: { color: 'rgba(255,255,255,0.32)' },
+  wordFuture: { color: 'rgba(255,255,255,0.28)' },
 
-  /* Translation */
-  translationBox: {
-    marginTop: 10,
-    padding: 12,
-    backgroundColor: 'rgba(252,60,68,0.10)',
-    borderRadius: borderRadius.md,
-    borderLeftWidth: 3,
-    borderLeftColor: colors.primary,
-    gap: 10,
-  },
-  translationText: {
-    fontSize: 16, fontWeight: '600', color: colors.text, lineHeight: 22,
-  },
-  wordChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  wordChip: {
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: borderRadius.full,
+  /* ── Translation card (Duolingo style) ── */
+  translationCard: {
+    marginTop: 6,
+    marginHorizontal: 4,
+    backgroundColor: '#1C1C1E',
+    borderRadius: borderRadius.xl,
+    padding: spacing.md,
+    gap: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: 'rgba(255,255,255,0.1)',
   },
-  wordChipText: { fontSize: 13, fontWeight: '600', color: colors.text },
+  translationKorean: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    lineHeight: 30,
+    textAlign: 'center',
+  },
+
+  /* word chips */
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  chip: {
+    backgroundColor: 'rgba(252,60,68,0.15)',
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: borderRadius.full,
+  },
+  chipText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.primary,
+  },
 });

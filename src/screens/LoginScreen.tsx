@@ -47,7 +47,7 @@ export default function LoginScreen({ onStart }: Props) {
         </TouchableOpacity>
         <Text style={styles.notice}>
           로그인 없이 무료로 이용 가능{'\n'}
-          30초 미리듣기 + 가사 제공
+          YouTube 전곡 재생 + 실시간 가사 번역
         </Text>
       </View>
     </LinearGradient>
