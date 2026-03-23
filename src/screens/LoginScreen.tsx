@@ -2,12 +2,15 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { initiateSpotifyLogin } from '../services/spotifyAuth';
 import { colors, spacing, borderRadius } from '../theme';
 
 const { height } = Dimensions.get('window');
 
-export default function LoginScreen() {
+interface Props {
+  onStart: () => void;
+}
+
+export default function LoginScreen({ onStart }: Props) {
   return (
     <LinearGradient
       colors={['#1a1a2e', '#16213e', '#0f3460', '#000000']}
@@ -36,15 +39,15 @@ export default function LoginScreen() {
         ))}
       </View>
 
-      {/* Spotify 로그인 버튼 */}
+      {/* 시작 버튼 */}
       <View style={styles.loginArea}>
-        <TouchableOpacity style={styles.spotifyBtn} onPress={initiateSpotifyLogin}>
-          <Ionicons name="logo-github" size={24} color="#000" />
-          <Text style={styles.spotifyBtnText}>Spotify로 시작하기</Text>
+        <TouchableOpacity style={styles.startBtn} onPress={onStart}>
+          <Ionicons name="musical-notes" size={24} color="#fff" />
+          <Text style={styles.startBtnText}>BTS 곡 듣기 시작</Text>
         </TouchableOpacity>
         <Text style={styles.notice}>
-          Spotify 계정이 필요합니다{'\n'}
-          무료 계정은 30초 미리듣기만 제공됩니다
+          로그인 없이 무료로 이용 가능{'\n'}
+          30초 미리듣기 + 가사 제공
         </Text>
       </View>
     </LinearGradient>
@@ -107,21 +110,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
   },
-  spotifyBtn: {
+  startBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1DB954',
+    backgroundColor: colors.primary,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xl,
     borderRadius: borderRadius.full,
     gap: spacing.sm,
     width: '100%',
   },
-  spotifyBtnText: {
+  startBtnText: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#000',
+    color: '#fff',
   },
   notice: {
     fontSize: 12,

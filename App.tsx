@@ -1,133 +1,226 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { View, StyleSheet, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useFonts } from 'expo-font';
 import HomeScreen from './src/screens/HomeScreen';
 import PlayerScreen from './src/screens/PlayerScreen';
 import LoginScreen from './src/screens/LoginScreen';
+import VocabListScreen from './src/screens/VocabListScreen';
 import { Track, LyricLine } from './src/types';
-import { colors } from './src/theme';
-import { getStoredToken, handleSpotifyCallback } from './src/services/spotifyAuth';
-import { getBTSAllTracks } from './src/services/spotify';
+import { getBTSTracks } from './src/services/itunes';
 import { getLyrics } from './src/services/lyrics';
+import {
+  initYouTubeAPI,
+  createYTPlayer,
+  ytLoadVideo,
+  ytPlay,
+  ytPause,
+  ytSeek,
+  ytGetCurrentTime,
+  ytGetDuration,
+  YT_STATE,
+} from './src/services/youtubePlayer';
+import { searchYouTube } from './src/services/youtubeSearch';
 
-type Screen = 'login' | 'home' | 'player';
+type Screen = 'login' | 'home' | 'player' | 'vocab';
+type RepeatMode = 'off' | 'one' | 'all';
+
+function loadLiked(): Set<string> {
+  try {
+    const s = localStorage.getItem('kpop_liked');
+    return s ? new Set(JSON.parse(s)) : new Set();
+  } catch { return new Set(); }
+}
+function saveLiked(set: Set<string>) {
+  try { localStorage.setItem('kpop_liked', JSON.stringify([...set])); } catch {}
+}
 
 export default function App() {
+  const [fontsLoaded] = useFonts({ ...Ionicons.font });
   const [screen, setScreen] = useState<Screen>('login');
-  const [token, setToken] = useState<string | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
-  const playerRef = useRef<HTMLAudioElement | null>(null);
+  const [durationMs, setDurationMs] = useState(0);
+  const [lyricsOffset, setLyricsOffset] = useState(0);
+
+  // Apple Music features
+  const [shuffleMode, setShuffleMode] = useState(false);
+  const [repeatMode, setRepeatMode] = useState<RepeatMode>('off');
+  const [likedTracks, setLikedTracks] = useState<Set<string>>(loadLiked);
+
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const currentIndexRef = useRef(0);
+  const tracksRef = useRef<Track[]>([]);
+  const ytReadyRef = useRef(false);
+  const currentTrackRef = useRef<Track | null>(null);
+  const shuffleModeRef = useRef(false);
+  const repeatModeRef = useRef<RepeatMode>('off');
 
-  // 앱 시작 시 토큰 확인 및 OAuth 콜백 처리
-  useEffect(() => {
-    if (Platform.OS !== 'web') return;
+  useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
+  useEffect(() => { tracksRef.current = tracks; }, [tracks]);
+  useEffect(() => { shuffleModeRef.current = shuffleMode; }, [shuffleMode]);
+  useEffect(() => { repeatModeRef.current = repeatMode; }, [repeatMode]);
 
-    // Spotify OAuth 콜백 처리
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    if (code) {
-      handleSpotifyCallback(code).then((t) => {
-        if (t) {
-          setToken(t);
-          setScreen('home');
-          window.history.replaceState({}, '', '/');
-        }
-      });
-      return;
+  const getNextIndex = useCallback((current: number): number => {
+    if (shuffleModeRef.current) {
+      const len = tracksRef.current.length;
+      let idx = Math.floor(Math.random() * len);
+      if (len > 1 && idx === current) idx = (idx + 1) % len;
+      return idx;
     }
+    return (current + 1) % tracksRef.current.length;
+  }, []);
 
-    // 저장된 토큰 확인
-    const stored = getStoredToken();
-    if (stored) {
-      setToken(stored);
-      setScreen('home');
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      initYouTubeAPI().then(() => {
+        createYTPlayer((state) => {
+          if (state === YT_STATE.PLAYING) {
+            setIsPlaying(true);
+            setTimeout(() => {
+              const dur = ytGetDuration();
+              if (dur > 0) {
+                setDurationMs(dur);
+                const itunesDur = currentTrackRef.current?.durationMs ?? 0;
+                if (itunesDur > 0) {
+                  const diffMs = Math.round(dur) - itunesDur;
+                  if (diffMs > 3000 && diffMs < 30000) setLyricsOffset(-diffMs);
+                }
+              }
+            }, 500);
+          } else if (state === YT_STATE.PAUSED) {
+            setIsPlaying(false);
+          } else if (state === YT_STATE.ENDED) {
+            setIsPlaying(false);
+            if (repeatModeRef.current === 'one') {
+              ytSeek(0); ytPlay(); return;
+            }
+            const nextIdx = getNextIndex(currentIndexRef.current);
+            if (tracksRef.current[nextIdx]) playTrack(tracksRef.current[nextIdx], nextIdx);
+          }
+        });
+        ytReadyRef.current = true;
+      });
     }
   }, []);
 
-  // 토큰 있으면 BTS 곡 로드
-  useEffect(() => {
-    if (!token) return;
-    getBTSAllTracks(token).then((t) => setTracks(t)).catch(console.error);
-  }, [token]);
-
-  // 재생 타이머
   useEffect(() => {
     if (isPlaying) {
-      timerRef.current = setInterval(() => {
-        setCurrentMs((ms) => ms + 250);
-      }, 250);
+      timerRef.current = setInterval(() => setCurrentMs(ytGetCurrentTime()), 250);
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [isPlaying]);
 
-  const handleSelectTrack = async (track: Track, index: number) => {
+  const playTrack = async (track: Track, index: number) => {
     setCurrentTrack(track);
+    currentTrackRef.current = track;
     setCurrentIndex(index);
+    currentIndexRef.current = index;
     setScreen('player');
     setIsPlaying(false);
     setCurrentMs(0);
+    setDurationMs(track.durationMs);
+    setLyricsOffset(0);
 
-    // 가사 로드
-    const l = await getLyrics(track.name, track.artists[0]);
+    const [l, videoId] = await Promise.all([
+      getLyrics(track.name, track.artists[0], track.durationMs),
+      ytReadyRef.current ? searchYouTube(track.name, track.artists[0]) : Promise.resolve(null),
+    ]);
+
     setLyrics(l);
+    if (videoId) ytLoadVideo(videoId);
+    else console.warn('YouTube video not found:', track.name);
+  };
 
-    // 미리듣기 재생 (30초)
-    if (track.previewUrl && Platform.OS === 'web') {
-      if (playerRef.current) playerRef.current.pause();
-      const audio = new Audio(track.previewUrl);
-      playerRef.current = audio;
-      audio.play().then(() => setIsPlaying(true)).catch(console.error);
-      audio.ontimeupdate = () => setCurrentMs(Math.round(audio.currentTime * 1000));
-      audio.onended = () => { setIsPlaying(false); handleNext(index); };
+  const loadTracks = () => {
+    setScreen('home');
+    getBTSTracks()
+      .then((t) => {
+        if (t.length === 0) {
+          setLoadError('곡을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.');
+        } else {
+          setLoadError(null);
+          setTracks(t);
+        }
+      })
+      .catch((e) => setLoadError(`오류: ${e.message ?? e}`));
+  };
+
+  const handleNext = useCallback(() => {
+    if (repeatModeRef.current === 'one') { ytSeek(0); ytPlay(); return; }
+    const nextIdx = getNextIndex(currentIndexRef.current);
+    if (tracksRef.current[nextIdx]) playTrack(tracksRef.current[nextIdx], nextIdx);
+  }, []);
+
+  const handlePrev = useCallback(() => {
+    if (currentMs > 3000) {
+      ytSeek(0); setCurrentMs(0);
+    } else {
+      const len = tracksRef.current.length;
+      const prevIdx = (currentIndexRef.current - 1 + len) % len;
+      if (tracksRef.current[prevIdx]) playTrack(tracksRef.current[prevIdx], prevIdx);
     }
-  };
-
-  const handleNext = (idx?: number) => {
-    const nextIdx = ((idx ?? currentIndex) + 1) % tracks.length;
-    if (tracks[nextIdx]) handleSelectTrack(tracks[nextIdx], nextIdx);
-  };
-
-  const handlePrev = () => {
-    const prevIdx = (currentIndex - 1 + tracks.length) % tracks.length;
-    if (tracks[prevIdx]) handleSelectTrack(tracks[prevIdx], prevIdx);
-  };
+  }, [currentMs]);
 
   const handlePlayPause = () => {
-    if (playerRef.current) {
-      if (isPlaying) { playerRef.current.pause(); setIsPlaying(false); }
-      else { playerRef.current.play(); setIsPlaying(true); }
-    }
+    if (isPlaying) { ytPause(); setIsPlaying(false); }
+    else { ytPlay(); setIsPlaying(true); }
   };
 
-  if (screen === 'login') return <LoginScreen />;
+  const handleToggleLike = (trackId: string) => {
+    setLikedTracks((prev) => {
+      const next = new Set(prev);
+      if (next.has(trackId)) next.delete(trackId);
+      else next.add(trackId);
+      saveLiked(next);
+      return next;
+    });
+  };
+
+  const handleToggleRepeat = () => {
+    setRepeatMode((m) => m === 'off' ? 'all' : m === 'all' ? 'one' : 'off');
+  };
+
+  if (!fontsLoaded) return null;
+
+  if (screen === 'login') return <LoginScreen onStart={loadTracks} />;
+
+  if (screen === 'vocab') return (
+    <SafeAreaProvider>
+      <VocabListScreen onBack={() => setScreen('home')} />
+    </SafeAreaProvider>
+  );
 
   if (screen === 'player' && currentTrack) {
     return (
       <SafeAreaProvider>
-        <TouchableOpacity style={styles.backButton} onPress={() => setScreen('home')}>
-          <Ionicons name="chevron-down" size={28} color={colors.text} />
-        </TouchableOpacity>
         <PlayerScreen
           track={currentTrack}
           lyrics={lyrics}
           isPlaying={isPlaying}
           currentMs={currentMs}
+          durationMs={durationMs}
+          lyricsOffset={lyricsOffset}
+          shuffleMode={shuffleMode}
+          repeatMode={repeatMode}
+          isLiked={likedTracks.has(currentTrack.id)}
+          onLyricsOffsetChange={setLyricsOffset}
           onPlayPause={handlePlayPause}
-          onNext={() => handleNext()}
+          onNext={handleNext}
           onPrev={handlePrev}
-          onSeek={(ms) => {
-            setCurrentMs(ms);
-            if (playerRef.current) playerRef.current.currentTime = ms / 1000;
-          }}
+          onSeek={(ms) => { setCurrentMs(ms); ytSeek(ms); }}
+          onToggleShuffle={() => setShuffleMode((s) => !s)}
+          onToggleRepeat={handleToggleRepeat}
+          onToggleLike={() => handleToggleLike(currentTrack.id)}
+          onBack={() => setScreen('home')}
         />
       </SafeAreaProvider>
     );
@@ -139,21 +232,17 @@ export default function App() {
         tracks={tracks}
         currentTrack={currentTrack}
         isPlaying={isPlaying}
-        onSelectTrack={(track) => handleSelectTrack(track, tracks.indexOf(track))}
+        currentMs={currentMs}
+        durationMs={durationMs}
+        onSelectTrack={(track) => playTrack(track, tracks.indexOf(track))}
+        onOpenPlayer={() => setScreen('player')}
+        onVocabPress={() => setScreen('vocab')}
+        onPlayPause={handlePlayPause}
+        onNext={handleNext}
+        loadError={loadError}
       />
     </SafeAreaProvider>
   );
 }
 
-const styles = StyleSheet.create({
-  backButton: {
-    position: 'absolute',
-    top: 56,
-    left: 20,
-    zIndex: 100,
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+const styles = StyleSheet.create({});

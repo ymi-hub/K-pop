@@ -26,7 +26,8 @@ export interface Word {
 export interface VocabEntry {
   word: string;
   pronunciation: string;   // 발음 기호
-  meaning: string;         // 한국어 뜻
+  meaning: string;         // 영어 뜻
+  koreanMeaning: string;   // 한국어 번역
   example: string;         // 예문
   difficulty: 'easy' | 'medium' | 'hard';
 }
