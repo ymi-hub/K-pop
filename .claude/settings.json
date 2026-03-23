@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx expo:*)",
+      "Bash(npx tsc:*)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill /F /PID 5560 /PID 29528)",
+      "Bash(taskkill /F /PID 5560)",
+      "Bash(taskkill /F /PID 29528)",
+      "Bash(cmd /c \"taskkill /F /IM node.exe\")",
+      "Bash(cmd /c \"taskkill /F /IM node.exe 2>&1\")",
+      "Bash(powershell -Command \"Get-NetAdapter | Where-Object {$_Status -eq ''Up''} | Select-Object Name, InterfaceDescription, Status\")",
+      "Bash(powershell -Command \"Get-NetAdapter | Select-Object Name, InterfaceDescription, Status\")",
+      "Bash(powershell -Command \"Disable-NetAdapter -Name ''TunnelBear Adapter V9'' -Confirm:$false; Disable-NetAdapter -Name ''TAP-Windows Adapter V9'' -Confirm:$false; Write-Host ''done''\")",
+      "Bash(powershell -Command \"Disable-NetAdapter -Name ''TunnelBear Adapter V9'' -Confirm:$false\")",
+      "Bash(powershell -Command \"Disable-NetAdapter -Name ''TAP-Windows Adapter V9'' -Confirm:$false\")",
+      "Bash(powershell -Command \"Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, ifIndex\")",
+      "Bash(powershell -Command \"New-NetFirewallRule -DisplayName ''Expo Metro'' -Direction Inbound -Protocol TCP -LocalPort 8081,8082,8083,8084,8085,19000,19001,19002 -Action Allow\")",
+      "Bash(firebase use:*)"
+    ]
+  }
+}

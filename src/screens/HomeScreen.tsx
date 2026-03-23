@@ -43,7 +43,7 @@ export default function HomeScreen({ tracks, currentTrack, isPlaying, onSelectTr
 
         <View style={styles.trackRight}>
           {isActive && isPlaying ? (
-            <Ionicons name="equalizer" size={20} color={colors.primary} />
+            <Ionicons name="musical-note" size={20} color={colors.primary} />
           ) : (
             <Text style={styles.duration}>
               {Math.floor(item.durationMs / 60000)}:{String(Math.floor((item.durationMs % 60000) / 1000)).padStart(2, '0')}
@@ -65,11 +65,7 @@ export default function HomeScreen({ tracks, currentTrack, isPlaying, onSelectTr
           <Text style={styles.title}>BTS 전체 곡</Text>
         </View>
         <View style={styles.headerIcon}>
-          <Image
-            source={require('../../assets/icon.png')}
-            style={styles.appIcon}
-            contentFit="cover"
-          />
+          <Ionicons name="musical-notes" size={32} color={colors.primary} />
         </View>
       </View>
 

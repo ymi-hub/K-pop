@@ -55,7 +55,7 @@ export default function VocabCard({ vocab, onClose }: Props) {
             </View>
           </View>
           <TouchableOpacity onPress={onClose}>
-            <Ionicons name="close-circle-fill" size={24} color={colors.textTertiary} />
+            <Ionicons name="close-circle" size={24} color={colors.textTertiary} />
           </TouchableOpacity>
         </View>
 

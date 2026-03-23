@@ -51,19 +51,19 @@ export default function PlayerControls({
       {/* 컨트롤 버튼 */}
       <View style={styles.controls}>
         <TouchableOpacity onPress={onPrev}>
-          <Ionicons name="play-skip-back-fill" size={36} color={colors.text} />
+          <Ionicons name="play-skip-back" size={36} color={colors.text} />
         </TouchableOpacity>
 
         <TouchableOpacity onPress={onPlayPause} style={styles.playButton}>
           <Ionicons
-            name={isPlaying ? 'pause-circle-fill' : 'play-circle-fill'}
+            name={isPlaying ? 'pause-circle' : 'play-circle'}
             size={72}
             color={colors.text}
           />
         </TouchableOpacity>
 
         <TouchableOpacity onPress={onNext}>
-          <Ionicons name="play-skip-forward-fill" size={36} color={colors.text} />
+          <Ionicons name="play-skip-forward" size={36} color={colors.text} />
         </TouchableOpacity>
       </View>
     </View>

@@ -50,6 +50,35 @@ export async function getAlbumTracks(token: string, albumId: string): Promise<Tr
   }));
 }
 
+// BTS 전체 곡 로드 (앨범 전체 순회)
+export async function getBTSAllTracks(token: string): Promise<Track[]> {
+  try {
+    const albumsRes = await fetch(
+      `${BASE_URL}/artists/${BTS_ARTIST_ID}/albums?market=KR&include_groups=album,single&limit=50`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const albumsData = await albumsRes.json();
+    if (!albumsData.items) return [];
+
+    const trackPromises = albumsData.items.slice(0, 20).map((album: any) =>
+      getAlbumTracks(token, album.id)
+    );
+    const trackArrays = await Promise.all(trackPromises);
+    const allTracks = trackArrays.flat();
+
+    // 중복 제거 (같은 곡 이름)
+    const seen = new Set<string>();
+    return allTracks.filter((t) => {
+      const key = t.name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  } catch {
+    return [];
+  }
+}
+
 export async function searchBTSSongs(token: string, query: string): Promise<Track[]> {
   const res = await fetch(
     `${BASE_URL}/search?q=${encodeURIComponent(query + ' BTS')}&type=track&market=KR&limit=20`,
