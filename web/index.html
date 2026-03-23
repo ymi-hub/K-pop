@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <!-- viewport-fit=cover : iOS 노치/홈바 영역까지 확장 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover" />
+
+    <title>K-pop English</title>
+
+    <!-- PWA: 홈 화면 추가 -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="K-pop" />
+    <meta name="theme-color" content="#FC3C44" />
+    <meta name="description" content="K-pop 가사로 배우는 영어 학습 앱" />
+
+    <!-- 아이콘 -->
+    <link rel="apple-touch-icon" href="/favicon.ico" />
+    <link rel="icon" href="/favicon.ico" />
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+
+    <style id="expo-reset">
+      html, body { height: 100%; margin: 0; padding: 0; background: #0a0a0f; }
+      body { overflow: hidden; }
+      #root { display: flex; height: 100%; flex: 1; }
+      /* iOS safe area 패딩 (notch / home bar) */
+      #root { padding-top: env(safe-area-inset-top); }
+    </style>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+  </body>
+</html>

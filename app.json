@@ -24,7 +24,15 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "name": "K-pop English",
+      "shortName": "K-pop",
+      "description": "K-pop 영어 학습 앱 — 가사로 배우는 영어",
+      "themeColor": "#FC3C44",
+      "backgroundColor": "#0a0a0f",
+      "display": "standalone",
+      "orientation": "portrait",
+      "lang": "ko"
     }
   }
 }

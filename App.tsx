@@ -133,6 +133,29 @@ export default function App() {
           }
         });
         ytReadyRef.current = true;
+
+        // Media Session 액션 핸들러 — 잠금화면/이어폰 버튼/알림바 제어
+        if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+          const ms = navigator.mediaSession;
+          ms.setActionHandler('play', () => { ytPlay(); setIsPlaying(true); });
+          ms.setActionHandler('pause', () => { ytPause(); setIsPlaying(false); });
+          ms.setActionHandler('previoustrack', () => {
+            const len = tracksRef.current.length;
+            const prevIdx = (currentIndexRef.current - 1 + len) % len;
+            if (tracksRef.current[prevIdx]) playTrack(tracksRef.current[prevIdx], prevIdx);
+          });
+          ms.setActionHandler('nexttrack', () => {
+            const nextIdx = getNextIndex(currentIndexRef.current);
+            if (tracksRef.current[nextIdx]) playTrack(tracksRef.current[nextIdx], nextIdx);
+          });
+          ms.setActionHandler('seekto', (details) => {
+            if (details.seekTime != null) {
+              const ms2 = details.seekTime * 1000;
+              ytSeek(ms2);
+              setCurrentMs(ms2);
+            }
+          });
+        }
       });
     }
   }, []);
@@ -156,6 +179,16 @@ export default function App() {
     setCurrentMs(0);
     setDurationMs(track.durationMs);
     setLyricsOffset(0);
+
+    // 잠금화면·알림바 미디어 메타데이터 설정
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new (window as any).MediaMetadata({
+        title: track.name,
+        artist: track.artists[0] ?? '',
+        album: track.album ?? '',
+        artwork: [{ src: track.albumArt, sizes: '600x600', type: 'image/jpeg' }],
+      });
+    }
 
     const [l, videoId] = await Promise.all([
       getLyrics(track.name, track.artists[0], track.durationMs),
@@ -198,8 +231,15 @@ export default function App() {
   }, [currentMs]);
 
   const handlePlayPause = () => {
-    if (isPlaying) { ytPause(); setIsPlaying(false); }
-    else { ytPlay(); setIsPlaying(true); }
+    if (isPlaying) {
+      ytPause(); setIsPlaying(false);
+      if (typeof navigator !== 'undefined' && 'mediaSession' in navigator)
+        navigator.mediaSession.playbackState = 'paused';
+    } else {
+      ytPlay(); setIsPlaying(true);
+      if (typeof navigator !== 'undefined' && 'mediaSession' in navigator)
+        navigator.mediaSession.playbackState = 'playing';
+    }
   };
 
   const handleToggleLike = (trackId: string) => {

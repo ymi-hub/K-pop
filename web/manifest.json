@@ -1,0 +1,18 @@
+{
+  "name": "K-pop English",
+  "short_name": "K-pop",
+  "description": "K-pop 가사로 배우는 영어 학습 앱",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0a0f",
+  "theme_color": "#FC3C44",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ]
+}
