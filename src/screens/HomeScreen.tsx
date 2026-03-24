@@ -12,12 +12,21 @@ import {
   LayoutAnimation,
   UIManager,
   Platform,
+  ActivityIndicator,
+  Alert,
   Dimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { colors, spacing, borderRadius } from '../theme';
 import { Track } from '../types';
 import MiniPlayer from '../components/MiniPlayer';
+import { searchTracks } from '../services/itunes';
+import {
+  getPlaylists,
+  savePlaylist,
+  deletePlaylist,
+  Playlist,
+} from '../services/playlistStorage';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -33,7 +42,7 @@ interface Props {
   currentMs: number;
   durationMs: number;
   likedTrackIds: Set<string>;
-  onSelectTrack: (track: Track) => void;
+  onSelectTrack: (track: Track, queue?: Track[]) => void;
   onOpenPlayer: () => void;
   onVocabPress: () => void;
   onPlayPause: () => void;
@@ -52,30 +61,30 @@ export default function HomeScreen({
   onSelectTrack, onOpenPlayer, onVocabPress, onPlayPause, onNext, loadError,
 }: Props) {
   const [searchInput, setSearchInput] = useState('');
-  const [expandedAlbums, setExpandedAlbums] = useState<Set<string>>(new Set());
+  const [searchedQuery, setSearchedQuery] = useState('');       // 실제 검색된 쿼리
+  const [searchedTracks, setSearchedTracks] = useState<Track[]>([]);
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
   const [showMoreCount, setShowMoreCount] = useState(30);
+  const [expandedAlbums, setExpandedAlbums] = useState<Set<string>>(new Set());
+  const [playlists, setPlaylists] = useState<Playlist[]>(() => getPlaylists());
 
-  const searchQuery = searchInput.trim().toLowerCase();
+  const isSearchMode = searchedQuery.length > 0;
 
   // 검색 결과: instrumental 제외, 이름+아티스트 중복 제거
-  const searchResults = useMemo((): Track[] => {
-    if (!searchQuery) return [];
+  const filteredResults = useMemo((): Track[] => {
+    if (!searchedTracks.length) return [];
     const seen = new Set<string>();
-    return tracks.filter((t) => {
+    return searchedTracks.filter((t) => {
       if (t.name.toLowerCase().includes('instrumental')) return false;
       const key = `${t.name.toLowerCase()}||${t.artists[0]?.toLowerCase()}`;
       if (seen.has(key)) return false;
       seen.add(key);
-      return (
-        t.name.toLowerCase().includes(searchQuery) ||
-        t.artists.some((a) => a.toLowerCase().includes(searchQuery)) ||
-        t.album.toLowerCase().includes(searchQuery)
-      );
+      return true;
     });
-  }, [tracks, searchQuery]);
+  }, [searchedTracks]);
 
-  const topResults = searchResults.slice(0, 5);               // 상단 고정 5개
-  const restResults = searchResults.slice(5);                  // 나머지 (최대 100개)
+  const topResults = filteredResults.slice(0, 5);
+  const restResults = filteredResults.slice(5);
   const visibleRest = restResults.slice(0, showMoreCount);
   const canShowMore = showMoreCount < Math.min(restResults.length, 100);
 
@@ -90,17 +99,59 @@ export default function HomeScreen({
     return Array.from(map.values());
   }, [tracks]);
 
-  // 최신 5개 앨범
   const featuredAlbums = useMemo(() => albums.slice(0, 5), [albums]);
-
-  // 즐겨찾기 트랙
   const likedTracks = useMemo(
     () => tracks.filter((t) => likedTrackIds.has(t.id)),
     [tracks, likedTrackIds]
   );
 
+  const handleSearch = async () => {
+    const q = searchInput.trim();
+    if (!q) { clearSearch(); return; }
+    setIsSearchLoading(true);
+    setSearchedQuery(q);
+    setShowMoreCount(30);
+    setExpandedAlbums(new Set());
+    const result = await searchTracks(q);
+    setSearchedTracks(result);
+    setIsSearchLoading(false);
+  };
+
   const clearSearch = () => {
     setSearchInput('');
+    setSearchedQuery('');
+    setSearchedTracks([]);
+    setShowMoreCount(30);
+    setExpandedAlbums(new Set());
+  };
+
+  const handleSavePlaylist = () => {
+    if (!filteredResults.length || !searchedQuery) return;
+    const pl: Playlist = {
+      id: `pl_${Date.now()}`,
+      name: searchedQuery,
+      tracks: filteredResults,
+      createdAt: Date.now(),
+    };
+    savePlaylist(pl);
+    setPlaylists(getPlaylists());
+    Alert.alert('저장됨', `"${searchedQuery}" 플레이리스트가 저장되었습니다.`);
+  };
+
+  const handleDeletePlaylist = (id: string, name: string) => {
+    Alert.alert('삭제', `"${name}" 플레이리스트를 삭제할까요?`, [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제', style: 'destructive',
+        onPress: () => { deletePlaylist(id); setPlaylists(getPlaylists()); },
+      },
+    ]);
+  };
+
+  const handleLoadPlaylist = (pl: Playlist) => {
+    setSearchInput(pl.name);
+    setSearchedQuery(pl.name);
+    setSearchedTracks(pl.tracks);
     setShowMoreCount(30);
     setExpandedAlbums(new Set());
   };
@@ -114,13 +165,13 @@ export default function HomeScreen({
     });
   };
 
-  const renderTrack = (item: Track) => {
+  const renderTrack = (item: Track, queue?: Track[]) => {
     const isActive = currentTrack?.id === item.id;
     return (
       <TouchableOpacity
         key={item.id}
         style={[styles.trackItem, isActive && styles.trackItemActive]}
-        onPress={() => onSelectTrack(item)}
+        onPress={() => onSelectTrack(item, queue)}
         activeOpacity={0.7}
       >
         {/* 아트 썸네일 (아이콘 대체) */}
@@ -180,42 +231,65 @@ export default function HomeScreen({
   const scrollHeader = (
     <>
       {/* ── 검색 결과 상단 5개 ── */}
-      {searchQuery && topResults.length > 0 && (
+      {isSearchMode && topResults.length > 0 && (
         <View style={styles.featuredSection}>
-          <Text style={styles.sectionLabel}>상위 결과</Text>
+          <View style={styles.sectionRow}>
+            <Text style={styles.sectionLabel}>상위 결과</Text>
+            <TouchableOpacity onPress={handleSavePlaylist} style={styles.saveBtn} activeOpacity={0.8}>
+              <Text style={styles.saveBtnText}>+ 플레이리스트 저장</Text>
+            </TouchableOpacity>
+          </View>
           <View style={styles.trackListCard}>
-            {topResults.map(renderTrack)}
+            {topResults.map((t) => renderTrack(t, filteredResults))}
           </View>
         </View>
       )}
 
+      {/* ── 저장된 플레이리스트 (검색 전에만) ── */}
+      {!isSearchMode && playlists.length > 0 && (
+        <View style={styles.featuredSection}>
+          <Text style={styles.sectionLabel}>저장된 플레이리스트</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.featuredRow}>
+            {playlists.map((pl) => (
+              <TouchableOpacity
+                key={pl.id}
+                style={styles.playlistCard}
+                onPress={() => handleLoadPlaylist(pl)}
+                onLongPress={() => handleDeletePlaylist(pl.id, pl.name)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.playlistArtGrid}>
+                  {pl.tracks.slice(0, 4).map((t, i) => (
+                    <Image key={i} source={{ uri: t.albumArt }} style={styles.playlistArtCell} contentFit="cover" />
+                  ))}
+                </View>
+                <Text style={styles.playlistName} numberOfLines={2}>{pl.name}</Text>
+                <Text style={styles.playlistCount}>{pl.tracks.length}곡</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
       {/* ── 즐겨찾기 (검색 전에만) ── */}
-      {!searchQuery && likedTracks.length > 0 && (
+      {!isSearchMode && likedTracks.length > 0 && (
         <View style={styles.featuredSection}>
           <Text style={styles.sectionLabel}>★ 즐겨찾기</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.featuredRow}
-          >
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.featuredRow}>
             {likedTracks.map((track) => {
               const isActive = currentTrack?.id === track.id;
               return (
                 <TouchableOpacity
                   key={track.id}
                   style={[styles.favCard, isActive && styles.favCardActive]}
-                  onPress={() => onSelectTrack(track)}
+                  onPress={() => onSelectTrack(track, likedTracks)}
                   activeOpacity={0.8}
                 >
                   <View style={styles.favArtWrap}>
                     <Image source={{ uri: track.albumArt }} style={styles.favArt} contentFit="cover" />
-                    <View style={styles.favStarBadge}>
-                      <Text style={styles.favStarText}>★</Text>
-                    </View>
+                    <View style={styles.favStarBadge}><Text style={styles.favStarText}>★</Text></View>
                   </View>
-                  <Text style={[styles.featuredName, isActive && { color: colors.primary }]} numberOfLines={2}>
-                    {track.name}
-                  </Text>
+                  <Text style={[styles.featuredName, isActive && { color: colors.primary }]} numberOfLines={2}>{track.name}</Text>
                   <Text style={styles.featuredCount} numberOfLines={1}>{track.artists[0]}</Text>
                 </TouchableOpacity>
               );
@@ -224,20 +298,16 @@ export default function HomeScreen({
         </View>
       )}
 
-      {/* ── 최신 앨범 5개 가로 스크롤 (검색 전에만) ── */}
-      {!searchQuery && featuredAlbums.length > 0 && (
+      {/* ── 최신 앨범 5개 (검색 전에만) ── */}
+      {!isSearchMode && featuredAlbums.length > 0 && (
         <View style={styles.featuredSection}>
           <Text style={styles.sectionLabel}>최신 앨범</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.featuredRow}
-          >
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.featuredRow}>
             {featuredAlbums.map((album) => (
               <TouchableOpacity
                 key={album.name}
                 style={styles.featuredCard}
-                onPress={() => onSelectTrack(album.tracks[0])}
+                onPress={() => onSelectTrack(album.tracks[0], album.tracks)}
                 activeOpacity={0.8}
               >
                 <Image source={{ uri: album.art }} style={styles.featuredArt} contentFit="cover" />
@@ -249,8 +319,8 @@ export default function HomeScreen({
         </View>
       )}
 
-      {/* ── 단어장 버튼 ── */}
-      {!searchQuery && (
+      {/* ── 단어장 버튼 (검색 전에만) ── */}
+      {!isSearchMode && (
         <TouchableOpacity style={styles.vocabCard} onPress={onVocabPress} activeOpacity={0.8}>
           <Text style={styles.vocabCardIcon}>📖</Text>
           <View style={styles.vocabCardInfo}>
@@ -261,12 +331,10 @@ export default function HomeScreen({
         </TouchableOpacity>
       )}
 
-      {/* ── 전체 앨범 / 전체 검색결과 레이블 ── */}
-      {!searchQuery && <Text style={styles.sectionLabel}>전체 앨범</Text>}
-      {searchQuery && restResults.length > 0 && (
-        <Text style={styles.sectionLabel}>
-          전체 결과 {searchResults.length}곡
-        </Text>
+      {/* ── 섹션 레이블 ── */}
+      {!isSearchMode && <Text style={styles.sectionLabel}>전체 앨범</Text>}
+      {isSearchMode && restResults.length > 0 && (
+        <Text style={styles.sectionLabel}>전체 결과 {filteredResults.length}곡</Text>
       )}
     </>
   );
@@ -279,7 +347,7 @@ export default function HomeScreen({
       <View style={styles.header}>
         <View>
           <Text style={styles.subtitle}>K-pop English</Text>
-          <Text style={styles.title}>{searchQuery || 'POP ENGLISH'}</Text>
+          <Text style={styles.title}>{isSearchMode ? searchedQuery : 'POP ENGLISH'}</Text>
         </View>
       </View>
       <View style={styles.searchContainer}>
@@ -290,26 +358,32 @@ export default function HomeScreen({
           placeholder="아티스트 · 노래 · 앨범 검색"
           placeholderTextColor="rgba(255,255,255,0.35)"
           returnKeyType="search"
+          onSubmitEditing={handleSearch}
         />
-        {searchInput.length > 0 ? (
+        {searchInput.length > 0 && (
           <TouchableOpacity onPress={clearSearch} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Text style={styles.clearBtn}>✕</Text>
           </TouchableOpacity>
-        ) : (
-          // @ts-ignore — web only SVG search icon
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
         )}
+        <TouchableOpacity onPress={handleSearch} style={styles.searchBtn} activeOpacity={0.8}>
+          {/* @ts-ignore */}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        </TouchableOpacity>
       </View>
 
-      {searchQuery ? (
+      {isSearchLoading ? (
+        <View style={styles.empty}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.emptyText}>검색 중...</Text>
+        </View>
+      ) : isSearchMode ? (
         /* ── 검색 모드: 평면 트랙 리스트 ── */
         <FlatList
           data={visibleRest}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => renderTrack(item)}
+          renderItem={({ item }) => renderTrack(item, filteredResults)}
           ListHeaderComponent={scrollHeader}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: currentTrack ? 110 : 40 }}
@@ -328,7 +402,7 @@ export default function HomeScreen({
             topResults.length === 0 ? (
               <View style={styles.empty}>
                 <Text style={styles.emptyIcon}>🔍</Text>
-                <Text style={styles.emptyText}>"{searchInput.trim()}" 검색 결과가 없습니다</Text>
+                <Text style={styles.emptyText}>"{searchedQuery}" 검색 결과가 없습니다</Text>
               </View>
             ) : null
           }
@@ -405,6 +479,47 @@ const styles = StyleSheet.create({
   },
   searchInput: { flex: 1, fontSize: 17, color: '#fff', paddingVertical: 0 },
   clearBtn: { fontSize: 14, color: 'rgba(255,255,255,0.4)', paddingHorizontal: 4 },
+  searchBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: colors.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  sectionRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: spacing.lg, marginBottom: 12, marginTop: 4,
+  },
+  saveBtn: {
+    marginLeft: 'auto' as any,
+    backgroundColor: 'rgba(252,60,68,0.15)',
+    borderWidth: 1, borderColor: 'rgba(252,60,68,0.35)',
+    borderRadius: borderRadius.full,
+    paddingHorizontal: 12, paddingVertical: 5,
+  },
+  saveBtnText: { fontSize: 12, fontWeight: '700', color: colors.primary },
+  /* ── 플레이리스트 카드 ── */
+  playlistCard: {
+    width: FEATURED_CARD_WIDTH,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  playlistArtGrid: {
+    width: '100%', aspectRatio: 1,
+    flexDirection: 'row', flexWrap: 'wrap',
+  },
+  playlistArtCell: {
+    width: '50%', height: undefined, aspectRatio: 1,
+  },
+  playlistName: {
+    fontSize: 13, fontWeight: '700', color: '#fff',
+    paddingHorizontal: 8, paddingTop: 8, lineHeight: 18,
+  },
+  playlistCount: {
+    fontSize: 11, color: 'rgba(255,255,255,0.4)',
+    paddingHorizontal: 8, paddingBottom: 8, marginTop: 2,
+  },
 
   /* ── 최신 앨범 featured ── */
   featuredSection: {
@@ -413,7 +528,7 @@ const styles = StyleSheet.create({
   sectionLabel: {
     fontSize: 14, fontWeight: '700', color: 'rgba(255,255,255,0.45)',
     textTransform: 'uppercase', letterSpacing: 0.8,
-    paddingHorizontal: spacing.lg, marginBottom: 12, marginTop: 4,
+    paddingHorizontal: spacing.lg, marginBottom: 12, marginTop: 4, flex: 1,
   },
   featuredRow: {
     flexDirection: 'row',

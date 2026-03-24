@@ -119,6 +119,7 @@ export default function App() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentIndexRef = useRef(0);
   const tracksRef = useRef<Track[]>([]);
+  const queueRef = useRef<Track[]>([]); // 현재 재생 큐 (BTS 또는 검색/플레이리스트)
   const ytReadyRef = useRef(false);
   const currentTrackRef = useRef<Track | null>(null);
   const shuffleModeRef = useRef(false);
@@ -126,18 +127,21 @@ export default function App() {
 
   useEffect(() => { loadTracks(); }, []);
   useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
-  useEffect(() => { tracksRef.current = tracks; }, [tracks]);
+  useEffect(() => {
+    tracksRef.current = tracks;
+    if (queueRef.current.length === 0) queueRef.current = tracks; // 초기 큐 = BTS 트랙
+  }, [tracks]);
   useEffect(() => { shuffleModeRef.current = shuffleMode; }, [shuffleMode]);
   useEffect(() => { repeatModeRef.current = repeatMode; }, [repeatMode]);
 
   const getNextIndex = useCallback((current: number): number => {
+    const q = queueRef.current;
     if (shuffleModeRef.current) {
-      const len = tracksRef.current.length;
-      let idx = Math.floor(Math.random() * len);
-      if (len > 1 && idx === current) idx = (idx + 1) % len;
+      let idx = Math.floor(Math.random() * q.length);
+      if (q.length > 1 && idx === current) idx = (idx + 1) % q.length;
       return idx;
     }
-    return (current + 1) % tracksRef.current.length;
+    return (current + 1) % q.length;
   }, []);
 
   // ── YouTube + Media Session 초기화 ─────────────────────────
@@ -177,7 +181,7 @@ export default function App() {
             setIsPlaying(false);
             if (repeatModeRef.current === 'one') { ytSeek(0); ytPlay(); return; }
             const nextIdx = getNextIndex(currentIndexRef.current);
-            if (tracksRef.current[nextIdx]) playTrack(tracksRef.current[nextIdx], nextIdx);
+            if (queueRef.current[nextIdx]) playTrack(queueRef.current[nextIdx], nextIdx);
           }
         });
         ytReadyRef.current = true;
@@ -187,13 +191,13 @@ export default function App() {
           ms.setActionHandler('play', () => { ytPlay(); setIsPlaying(true); });
           ms.setActionHandler('pause', () => { ytPause(); setIsPlaying(false); });
           ms.setActionHandler('previoustrack', () => {
-            const len = tracksRef.current.length;
-            const prevIdx = (currentIndexRef.current - 1 + len) % len;
-            if (tracksRef.current[prevIdx]) playTrack(tracksRef.current[prevIdx], prevIdx);
+            const q = queueRef.current;
+            const prevIdx = (currentIndexRef.current - 1 + q.length) % q.length;
+            if (q[prevIdx]) playTrack(q[prevIdx], prevIdx);
           });
           ms.setActionHandler('nexttrack', () => {
             const nextIdx = getNextIndex(currentIndexRef.current);
-            if (tracksRef.current[nextIdx]) playTrack(tracksRef.current[nextIdx], nextIdx);
+            if (queueRef.current[nextIdx]) playTrack(queueRef.current[nextIdx], nextIdx);
           });
           ms.setActionHandler('seekto', (details) => {
             if (details.seekTime != null) {
@@ -258,15 +262,15 @@ export default function App() {
   const handleNext = useCallback(() => {
     if (repeatModeRef.current === 'one') { ytSeek(0); ytPlay(); return; }
     const nextIdx = getNextIndex(currentIndexRef.current);
-    if (tracksRef.current[nextIdx]) playTrack(tracksRef.current[nextIdx], nextIdx);
+    if (queueRef.current[nextIdx]) playTrack(queueRef.current[nextIdx], nextIdx);
   }, []);
 
   const handlePrev = useCallback(() => {
     if (currentMs > 3000) { ytSeek(0); setCurrentMs(0); }
     else {
-      const len = tracksRef.current.length;
-      const prevIdx = (currentIndexRef.current - 1 + len) % len;
-      if (tracksRef.current[prevIdx]) playTrack(tracksRef.current[prevIdx], prevIdx);
+      const q = queueRef.current;
+      const prevIdx = (currentIndexRef.current - 1 + q.length) % q.length;
+      if (q[prevIdx]) playTrack(q[prevIdx], prevIdx);
     }
   }, [currentMs]);
 
@@ -382,7 +386,12 @@ export default function App() {
           currentMs={currentMs}
           durationMs={durationMs}
           likedTrackIds={likedTracks}
-          onSelectTrack={(track) => playTrack(track, tracks.indexOf(track))}
+          onSelectTrack={(track, queue) => {
+            const q = queue ?? tracks;
+            queueRef.current = q;
+            const idx = q.findIndex((t) => t.id === track.id);
+            playTrack(track, Math.max(0, idx));
+          }}
           onOpenPlayer={() => setScreen('player')}
           onVocabPress={() => setScreen('vocab')}
           onPlayPause={handlePlayPause}
