@@ -253,7 +253,6 @@ export default function HomeScreen({
         </View>
       </View>
       <View style={styles.searchContainer}>
-        <Text style={styles.searchIcon}>🔍</Text>
         <TextInput
           style={styles.searchInput}
           value={searchInput}
@@ -262,10 +261,16 @@ export default function HomeScreen({
           placeholderTextColor="rgba(255,255,255,0.35)"
           returnKeyType="search"
         />
-        {searchInput.length > 0 && (
+        {searchInput.length > 0 ? (
           <TouchableOpacity onPress={clearSearch} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Text style={styles.clearBtn}>✕</Text>
           </TouchableOpacity>
+        ) : (
+          // @ts-ignore — web only SVG search icon
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
         )}
       </View>
 
@@ -340,7 +345,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, height: 52, gap: 10,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
   },
-  searchIcon: { fontSize: 16 },
   searchInput: { flex: 1, fontSize: 17, color: '#fff', paddingVertical: 0 },
   clearBtn: { fontSize: 14, color: 'rgba(255,255,255,0.4)', paddingHorizontal: 4 },
 
