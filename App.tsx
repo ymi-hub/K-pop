@@ -381,6 +381,7 @@ export default function App() {
           isPlaying={isPlaying}
           currentMs={currentMs}
           durationMs={durationMs}
+          likedTrackIds={likedTracks}
           onSelectTrack={(track) => playTrack(track, tracks.indexOf(track))}
           onOpenPlayer={() => setScreen('player')}
           onVocabPress={() => setScreen('vocab')}

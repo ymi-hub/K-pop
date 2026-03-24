@@ -34,6 +34,7 @@ interface Props {
   isPlaying: boolean;
   currentMs: number;
   durationMs: number;
+  likedTrackIds: Set<string>;
   onSelectTrack: (track: Track) => void;
   onOpenPlayer: () => void;
   onVocabPress: () => void;
@@ -49,7 +50,7 @@ interface Album {
 }
 
 export default function HomeScreen({
-  tracks, currentTrack, isPlaying, currentMs, durationMs,
+  tracks, currentTrack, isPlaying, currentMs, durationMs, likedTrackIds,
   onSelectTrack, onOpenPlayer, onVocabPress, onPlayPause, onNext, loadError,
 }: Props) {
   const [searchInput, setSearchInput] = useState('');
@@ -73,6 +74,12 @@ export default function HomeScreen({
 
   // 최신 5개 앨범 (기본 BTS일 때만 노출)
   const featuredAlbums = useMemo(() => albums.slice(0, 5), [albums]);
+
+  // 즐겨찾기 트랙 (좋아요 누른 순서 유지)
+  const likedTracks = useMemo(
+    () => tracks.filter((t) => likedTrackIds.has(t.id)),
+    [tracks, likedTrackIds]
+  );
 
   const handleSearch = async () => {
     const q = searchInput.trim();
@@ -166,6 +173,41 @@ export default function HomeScreen({
   // FlatList 스크롤 헤더 (검색창 제외 — TextInput이 여기 있으면 리렌더마다 remount되어 포커스 손실)
   const scrollHeader = (
     <>
+      {/* ── 즐겨찾기 (검색 전에만) ── */}
+      {!searchedArtist && likedTracks.length > 0 && (
+        <View style={styles.featuredSection}>
+          <Text style={styles.sectionLabel}>★ 즐겨찾기</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.featuredRow}
+          >
+            {likedTracks.map((track) => {
+              const isActive = currentTrack?.id === track.id;
+              return (
+                <TouchableOpacity
+                  key={track.id}
+                  style={[styles.favCard, isActive && styles.favCardActive]}
+                  onPress={() => onSelectTrack(track)}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.favArtWrap}>
+                    <Image source={{ uri: track.albumArt }} style={styles.favArt} contentFit="cover" />
+                    <View style={styles.favStarBadge}>
+                      <Text style={styles.favStarText}>★</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.featuredName, isActive && { color: colors.primary }]} numberOfLines={2}>
+                    {track.name}
+                  </Text>
+                  <Text style={styles.featuredCount} numberOfLines={1}>{track.artists[0]}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+
       {/* ── 최신 앨범 5개 가로 스크롤 (검색 전에만) ── */}
       {!searchedArtist && featuredAlbums.length > 0 && (
         <View style={styles.featuredSection}>
@@ -365,6 +407,29 @@ const styles = StyleSheet.create({
     fontSize: 11, color: 'rgba(255,255,255,0.4)',
     paddingHorizontal: 8, paddingBottom: 8, marginTop: 2,
   },
+
+  /* ── 즐겨찾기 카드 ── */
+  favCard: {
+    width: FEATURED_CARD_WIDTH,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,215,0,0.2)',
+  },
+  favCardActive: {
+    borderColor: colors.primary,
+    backgroundColor: 'rgba(252,60,68,0.08)',
+  },
+  favArtWrap: { position: 'relative' },
+  favArt: { width: '100%', aspectRatio: 1 },
+  favStarBadge: {
+    position: 'absolute', top: 6, right: 6,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  favStarText: { fontSize: 13, color: '#FFD60A' },
 
   /* ── 단어장 카드 버튼 ── */
   vocabCard: {
