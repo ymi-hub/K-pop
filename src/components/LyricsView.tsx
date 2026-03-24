@@ -4,6 +4,7 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   StyleSheet,
   Dimensions,
   ActivityIndicator,
@@ -38,17 +39,22 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
   const handleLineTap = async (line: LyricLine, idx: number) => {
     const now = Date.now();
     const last = lastTapRef.current;
-    if (last && last.idx === idx && now - last.time < 400) {
-      lastTapRef.current = null;
-      if (translatedIdx === idx) {
-        setTranslatedIdx(null); setTranslatedText(''); return;
-      }
-      setTranslatedIdx(idx); setTranslatedText(''); setTranslating(true);
-      const result = await translateToKorean(line.text);
-      setTranslatedText(result); setTranslating(false);
-    } else {
+    // 단일 탭: 다른 라인의 번역이 열려있으면 닫기
+    if (!last || last.idx !== idx || now - last.time >= 400) {
       lastTapRef.current = { idx, time: now };
+      if (translatedIdx !== null && translatedIdx !== idx) {
+        setTranslatedIdx(null); setTranslatedText('');
+      }
+      return;
     }
+    // 더블 탭
+    lastTapRef.current = null;
+    if (translatedIdx === idx) {
+      setTranslatedIdx(null); setTranslatedText(''); return;
+    }
+    setTranslatedIdx(idx); setTranslatedText(''); setTranslating(true);
+    const result = await translateToKorean(line.text);
+    setTranslatedText(result); setTranslating(false);
   };
 
   if (lyrics.length === 0) {
@@ -59,6 +65,10 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
     );
   }
 
+  const closeTranslation = () => {
+    if (translatedIdx !== null) { setTranslatedIdx(null); setTranslatedText(''); }
+  };
+
   return (
     <ScrollView
       ref={scrollRef}
@@ -66,7 +76,9 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
       showsVerticalScrollIndicator={false}
       contentContainerStyle={styles.content}
     >
-      <View style={{ height: height * 0.08 }} />
+      <TouchableWithoutFeedback onPress={closeTranslation}>
+        <View style={{ height: height * 0.08 }} />
+      </TouchableWithoutFeedback>
 
       <Text style={styles.hint}>두 번 탭하면 번역 · 단어 탭하면 뜻</Text>
 
@@ -147,7 +159,9 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
         );
       })}
 
-      <View style={{ height: height * 0.3 }} />
+      <TouchableWithoutFeedback onPress={closeTranslation}>
+        <View style={{ height: height * 0.3 }} />
+      </TouchableWithoutFeedback>
     </ScrollView>
   );
 }
