@@ -128,7 +128,7 @@ export default function HomeScreen({
   const handleSavePlaylist = () => {
     if (!filteredResults.length || !searchedQuery) return;
     const pl: Playlist = {
-      id: `pl_${Date.now()}`,
+      id: `pl_${searchedQuery.toLowerCase().trim()}`,
       name: searchedQuery,
       tracks: filteredResults,
       createdAt: Date.now(),
