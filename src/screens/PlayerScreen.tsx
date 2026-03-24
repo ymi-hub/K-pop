@@ -41,6 +41,7 @@ interface Props {
   onToggleRepeat: () => void;
   onToggleLike: () => void;
   onBack: () => void;
+  backListName?: string | null; // 보관함에서 진입 시 목록 이름
 }
 
 function formatTime(ms: number): string {
@@ -78,7 +79,7 @@ export default function PlayerScreen({
   track, lyrics, isPlaying, currentMs, durationMs,
   lyricsOffset, shuffleMode, repeatMode, isLiked,
   onLyricsOffsetChange, onPlayPause, onNext, onPrev, onSeek,
-  onToggleShuffle, onToggleRepeat, onToggleLike, onBack,
+  onToggleShuffle, onToggleRepeat, onToggleLike, onBack, backListName,
 }: Props) {
   const [showLyrics, setShowLyrics] = useState(false);
   const [activeVocab, setActiveVocab] = useState<VocabEntry | null>(null);
@@ -237,6 +238,14 @@ export default function PlayerScreen({
       ) : (
         /* ── 일반 플레이어 모드 ── */
         <>
+          {/* 보관함 목록 복귀 버튼 */}
+          {backListName ? (
+            <TouchableOpacity style={styles.backListBar} onPress={onBack} activeOpacity={0.75}>
+              <Text style={styles.backListIcon}>☰</Text>
+              <Text style={styles.backListText} numberOfLines={1}>{backListName}</Text>
+            </TouchableOpacity>
+          ) : null}
+
           <View style={styles.header}>
             <View style={{ flex: 1 }} />
             {/* 즐겨찾기 — 상단 우측 */}
@@ -272,10 +281,23 @@ export default function PlayerScreen({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
 
+  /* ── 보관함 목록 복귀 바 ── */
+  backListBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingTop: 56, paddingHorizontal: spacing.lg, paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.12)',
+  },
+  backListIcon: { fontSize: 15, color: 'rgba(255,255,255,0.55)' },
+  backListText: {
+    fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.7)',
+    flex: 1,
+  },
+
   /* ── 일반 헤더 ── */
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingTop: 56, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm,
+    paddingTop: 16, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm,
   },
   headerTitle: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.75)', textTransform: 'uppercase', letterSpacing: 0.6 },
   homeBtn: {

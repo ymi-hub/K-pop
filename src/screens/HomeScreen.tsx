@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -49,6 +49,9 @@ interface Props {
   onPlayPause: () => void;
   onNext: () => void;
   loadError?: string | null;
+  savedListQuery?: string;
+  savedListTracks?: Track[];
+  onListChange: (query: string, tracks: Track[]) => void;
 }
 
 interface Album {
@@ -60,13 +63,19 @@ interface Album {
 export default function HomeScreen({
   tracks, currentTrack, isPlaying, currentMs, durationMs, likedTrackIds,
   onSelectTrack, onAutoPlay, onOpenPlayer, onVocabPress, onPlayPause, onNext, loadError,
+  savedListQuery = '', savedListTracks = [], onListChange,
 }: Props) {
-  const [searchInput, setSearchInput] = useState('');
-  const [searchedQuery, setSearchedQuery] = useState('');       // 실제 검색된 쿼리
-  const [searchedTracks, setSearchedTracks] = useState<Track[]>([]);
+  const [searchInput, setSearchInput] = useState(savedListQuery);
+  const [searchedQuery, setSearchedQuery] = useState(savedListQuery);
+  const [searchedTracks, setSearchedTracks] = useState<Track[]>(savedListTracks);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
   const [expandedAlbums, setExpandedAlbums] = useState<Set<string>>(new Set());
   const [playlists, setPlaylists] = useState<Playlist[]>(() => getPlaylists());
+
+  // 목록 상태를 App.tsx로 동기화 (플레이어 → 홈 복귀 시 유지)
+  useEffect(() => {
+    onListChange(searchedQuery, searchedTracks);
+  }, [searchedQuery, searchedTracks]);
 
   const isSearchMode = searchedQuery.length > 0;
 

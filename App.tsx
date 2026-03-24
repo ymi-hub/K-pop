@@ -66,6 +66,9 @@ export default function App() {
   const [shuffleMode, setShuffleMode] = useState(false);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('off');
   const [likedTracks, setLikedTracks] = useState<Set<string>>(loadLikedLocal);
+  // 보관함(즐겨찾기/플레이리스트) 목록 상태 — 플레이어에서 홈으로 돌아올 때 유지
+  const [homeListQuery, setHomeListQuery] = useState('');
+  const [homeListTracks, setHomeListTracks] = useState<Track[]>([]);
 
   // ── Firebase Auth ──────────────────────────────────────────
   const [user, setUser] = useState<User | null>(null);
@@ -371,6 +374,7 @@ export default function App() {
           onToggleRepeat={handleToggleRepeat}
           onToggleLike={() => handleToggleLike(currentTrack.id)}
           onBack={() => setScreen('home')}
+          backListName={homeListQuery || null}
         />
       </SafeAreaProvider>
     );
@@ -396,8 +400,11 @@ export default function App() {
           onAutoPlay={(track, queue) => {
             queueRef.current = queue;
             const idx = queue.findIndex((t) => t.id === track.id);
-            playTrack(track, Math.max(0, idx), false); // 화면 이동 없이 재생
+            playTrack(track, Math.max(0, idx), false);
           }}
+          savedListQuery={homeListQuery}
+          savedListTracks={homeListTracks}
+          onListChange={(q, t) => { setHomeListQuery(q); setHomeListTracks(t); }}
           onOpenPlayer={() => setScreen('player')}
           onVocabPress={() => setScreen('vocab')}
           onPlayPause={handlePlayPause}
