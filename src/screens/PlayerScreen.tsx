@@ -16,8 +16,9 @@ import { Track, LyricLine, VocabEntry } from '../types';
 import VocabCard from '../components/VocabCard';
 import LyricsView from '../components/LyricsView';
 
-const { width } = Dimensions.get('window');
-const ALBUM_ART_SIZE = width - 72;
+const { width, height } = Dimensions.get('window');
+// 앨범 아트 크기: 가로 기준이되 화면 높이의 38%를 넘지 않도록 제한 → 겹침 방지
+const ALBUM_ART_SIZE = Math.min(width - 72, height * 0.38);
 const OFFSET_STEP = 500;
 
 type RepeatMode = 'off' | 'one' | 'all';
@@ -48,35 +49,21 @@ function formatTime(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-// 웹 전용 프로그레스 슬라이더
+// 프로그레스 슬라이더 (웹 전용 HTML input)
 function ProgressSlider({ value, max, onComplete }: { value: number; max: number; onComplete: (v: number) => void }) {
-  if (Platform.OS === 'web') {
-    return (
-      <input
-        type="range"
-        min={0}
-        max={max || 1}
-        value={value}
-        onChange={(e) => onComplete(Number((e.target as HTMLInputElement).value))}
-        style={{
-          width: '100%',
-          accentColor: '#fff',
-          cursor: 'pointer',
-          height: 4,
-        } as any}
-      />
-    );
-  }
   return (
-    <Slider
-      style={{ width: '100%', height: 32 }}
-      minimumValue={0}
-      maximumValue={max || 1}
+    <input
+      type="range"
+      min={0}
+      max={max || 1}
       value={value}
-      onSlidingComplete={onComplete}
-      minimumTrackTintColor="rgba(255,255,255,0.9)"
-      maximumTrackTintColor="rgba(255,255,255,0.25)"
-      thumbTintColor="#fff"
+      onChange={(e) => onComplete(Number((e.target as HTMLInputElement).value))}
+      style={{
+        width: '100%',
+        accentColor: '#fff',
+        cursor: 'pointer',
+        height: 4,
+      } as any}
     />
   );
 }
@@ -152,8 +139,10 @@ export default function PlayerScreen({
         </TouchableOpacity>
 
         {/* Prev */}
-        <TouchableOpacity onPress={onPrev} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <Text style={styles.skipIcon}>⏮</Text>
+        <TouchableOpacity onPress={onPrev} style={styles.skipBtnOuter}>
+          <View style={styles.skipBtnCircle}>
+            <Text style={styles.skipBtnIcon}>⏮</Text>
+          </View>
         </TouchableOpacity>
 
         {/* Play / Pause */}
@@ -164,8 +153,10 @@ export default function PlayerScreen({
         </TouchableOpacity>
 
         {/* Next */}
-        <TouchableOpacity onPress={onNext} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <Text style={styles.skipIcon}>⏭</Text>
+        <TouchableOpacity onPress={onNext} style={styles.skipBtnOuter}>
+          <View style={styles.skipBtnCircle}>
+            <Text style={styles.skipBtnIcon}>⏭</Text>
+          </View>
         </TouchableOpacity>
 
         {/* Repeat */}
@@ -319,7 +310,9 @@ const styles = StyleSheet.create({
 
   /* ── Album art ── */
   albumSection: {
-    flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 36,
+    alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 36,
+    paddingVertical: 16,
   },
   albumShadow: {
     shadowColor: '#000',
@@ -351,9 +344,22 @@ const styles = StyleSheet.create({
   },
   sideBtn: { alignItems: 'center', width: 36 },
   sideBtnIcon: { fontSize: 22, color: 'rgba(255,255,255,0.65)' },
-  skipIcon: { fontSize: 34, color: '#fff' },
 
-  /* Play button - white circle */
+  /* Prev / Next — Play 버튼과 동일한 원형 디자인, 크기만 작게 */
+  skipBtnOuter: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3, shadowRadius: 6,
+  },
+  skipBtnCircle: {
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  skipBtnIcon: { fontSize: 22, color: '#fff' },
+
+  /* Play button — 흰 원, 가장 큰 버튼 */
   playBtnOuter: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
