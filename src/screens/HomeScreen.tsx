@@ -43,6 +43,7 @@ interface Props {
   durationMs: number;
   likedTrackIds: Set<string>;
   onSelectTrack: (track: Track, queue?: Track[]) => void;
+  onAutoPlay: (track: Track, queue: Track[]) => void;
   onOpenPlayer: () => void;
   onVocabPress: () => void;
   onPlayPause: () => void;
@@ -58,7 +59,7 @@ interface Album {
 
 export default function HomeScreen({
   tracks, currentTrack, isPlaying, currentMs, durationMs, likedTrackIds,
-  onSelectTrack, onOpenPlayer, onVocabPress, onPlayPause, onNext, loadError,
+  onSelectTrack, onAutoPlay, onOpenPlayer, onVocabPress, onPlayPause, onNext, loadError,
 }: Props) {
   const [searchInput, setSearchInput] = useState('');
   const [searchedQuery, setSearchedQuery] = useState('');       // 실제 검색된 쿼리
@@ -69,9 +70,12 @@ export default function HomeScreen({
 
   const isSearchMode = searchedQuery.length > 0;
 
-  // 검색 결과: instrumental 제외, 이름+아티스트 중복 제거, 전체 노출
+  const isFavoritesMode = searchedQuery === '★ 즐겨찾기';
+
+  // 검색 결과: instrumental 제외, 이름+아티스트 중복 제거 (즐겨찾기 모드는 그대로)
   const filteredResults = useMemo((): Track[] => {
     if (!searchedTracks.length) return [];
+    if (isFavoritesMode) return searchedTracks; // 즐겨찾기는 필터 없이 전체 표시
     const seen = new Set<string>();
     return searchedTracks.filter((t) => {
       if (t.name.toLowerCase().includes('instrumental')) return false;
@@ -80,7 +84,7 @@ export default function HomeScreen({
       seen.add(key);
       return true;
     });
-  }, [searchedTracks]);
+  }, [searchedTracks, isFavoritesMode]);
 
   const albums = useMemo((): Album[] => {
     const map = new Map<string, Album>();
@@ -145,6 +149,15 @@ export default function HomeScreen({
     setSearchedQuery(pl.name);
     setSearchedTracks(pl.tracks);
     setExpandedAlbums(new Set());
+  };
+
+  const handleLoadFavorites = () => {
+    if (!likedTracks.length) return;
+    setSearchInput('★ 즐겨찾기');
+    setSearchedQuery('★ 즐겨찾기');
+    setSearchedTracks(likedTracks);
+    setExpandedAlbums(new Set());
+    onAutoPlay(likedTracks[0], likedTracks); // 첫 곡 자동 재생 (화면 이동 없음)
   };
 
   const toggleAlbum = (albumName: string) => {
@@ -241,7 +254,7 @@ export default function HomeScreen({
             {likedTracks.length > 0 && (
               <TouchableOpacity
                 style={[styles.playlistCard, { borderColor: 'rgba(255,215,0,0.3)' }]}
-                onPress={() => onSelectTrack(likedTracks[0], likedTracks)}
+                onPress={handleLoadFavorites}
                 activeOpacity={0.8}
               >
                 <View style={styles.playlistArtGrid}>

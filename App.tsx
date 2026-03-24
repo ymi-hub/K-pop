@@ -221,12 +221,12 @@ export default function App() {
   }, [isPlaying]);
 
   // ── Player ─────────────────────────────────────────────────
-  const playTrack = async (track: Track, index: number) => {
+  const playTrack = async (track: Track, index: number, navigate = true) => {
     setCurrentTrack(track);
     currentTrackRef.current = track;
     setCurrentIndex(index);
     currentIndexRef.current = index;
-    setScreen('player');
+    if (navigate) setScreen('player');
     setIsPlaying(false);
     setCurrentMs(0);
     setDurationMs(track.durationMs);
@@ -392,6 +392,11 @@ export default function App() {
             queueRef.current = q;
             const idx = q.findIndex((t) => t.id === track.id);
             playTrack(track, Math.max(0, idx));
+          }}
+          onAutoPlay={(track, queue) => {
+            queueRef.current = queue;
+            const idx = queue.findIndex((t) => t.id === track.id);
+            playTrack(track, Math.max(0, idx), false); // 화면 이동 없이 재생
           }}
           onOpenPlayer={() => setScreen('player')}
           onVocabPress={() => setScreen('vocab')}
