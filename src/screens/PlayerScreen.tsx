@@ -157,11 +157,10 @@ export default function PlayerScreen({
 
       {/* ── 하단 바: 💬 가사 | 싱크 | ☰ 목록 ── */}
       <View style={styles.bottomBar}>
-        {/* 왼쪽: 가사보기 */}
+        {/* 왼쪽: 가사보기 — 항상 누를 수 있음 */}
         <TouchableOpacity
           style={styles.bottomBarBtn}
           onPress={() => setShowLyrics((v) => !v)}
-          disabled={!hasLyrics}
           activeOpacity={0.7}
         >
           <View style={[styles.bottomBarIconWrap, showLyrics && styles.bottomBarIconActive]}>
@@ -170,25 +169,21 @@ export default function PlayerScreen({
           <Text style={[styles.bottomBarLabel, showLyrics && { color: colors.primary }]}>가사</Text>
         </TouchableOpacity>
 
-        {/* 가운데: 싱크 */}
+        {/* 가운데: 싱크 — 항상 표시, 가사 없으면 흐리게 */}
         <View style={styles.bottomBarCenter}>
-          {hasLyrics ? (
-            <View style={styles.syncRow}>
-              <TouchableOpacity style={styles.syncBtn} onPress={() => onLyricsOffsetChange(lyricsOffset - OFFSET_STEP)}>
-                <Text style={styles.syncBtnText}>−</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.syncLabel} onPress={() => onLyricsOffsetChange(0)}>
-                <Text style={[styles.syncText, lyricsOffset !== 0 && { color: colors.primary }]}>
-                  {offsetLabel}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.syncBtn} onPress={() => onLyricsOffsetChange(lyricsOffset + OFFSET_STEP)}>
-                <Text style={styles.syncBtnText}>+</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.bottomBarBtn} />
-          )}
+          <View style={[styles.syncRow, !hasLyrics && { opacity: 0.35 }]}>
+            <TouchableOpacity style={styles.syncBtn} onPress={() => hasLyrics && onLyricsOffsetChange(lyricsOffset - OFFSET_STEP)}>
+              <Text style={styles.syncBtnText}>−</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.syncLabel} onPress={() => hasLyrics && onLyricsOffsetChange(0)}>
+              <Text style={[styles.syncText, lyricsOffset !== 0 && { color: colors.primary }]}>
+                {offsetLabel}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.syncBtn} onPress={() => hasLyrics && onLyricsOffsetChange(lyricsOffset + OFFSET_STEP)}>
+              <Text style={styles.syncBtnText}>+</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* 오른쪽: 목록 */}
@@ -246,11 +241,7 @@ export default function PlayerScreen({
         /* ── 일반 플레이어 모드 ── */
         <>
           <View style={styles.header}>
-            <TouchableOpacity onPress={onBack} style={styles.homeBtn}>
-              <Text style={styles.homeBtnIcon}>⌂</Text>
-              <Text style={styles.homeBtnText}>홈</Text>
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>지금 재생 중</Text>
+            <View style={{ flex: 1 }} />
             {/* 즐겨찾기 — 상단 우측 */}
             <TouchableOpacity onPress={onToggleLike} style={styles.starBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
               <Text style={[styles.starIcon, isLiked && { color: '#FFD60A' }]}>

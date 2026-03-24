@@ -16,7 +16,12 @@
       "Bash(powershell -Command \"Disable-NetAdapter -Name ''TAP-Windows Adapter V9'' -Confirm:$false\")",
       "Bash(powershell -Command \"Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, ifIndex\")",
       "Bash(powershell -Command \"New-NetFirewallRule -DisplayName ''Expo Metro'' -Direction Inbound -Protocol TCP -LocalPort 8081,8082,8083,8084,8085,19000,19001,19002 -Action Allow\")",
-      "Bash(firebase use:*)"
+      "Bash(firebase use:*)",
+      "Bash(identify \"c:/Claude/K-pop/assets/icon.png\")",
+      "Bash(python3 -c \"from PIL import Image, ImageDraw, ImageFont; print\\(''PIL OK''\\)\")",
+      "Bash(python -c \"from PIL import Image; print\\(''PIL OK''\\)\")",
+      "Bash(node -e \"const { createCanvas } = require\\(''canvas''\\); console.log\\(''canvas OK''\\)\")",
+      "Bash(python3:*)"
     ]
   }
 }
