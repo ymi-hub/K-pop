@@ -136,10 +136,28 @@ async function tryMyMemory(text: string): Promise<string> {
   return r;
 }
 
-// 문장 번역: Google + MyMemory 중 빠른 쪽
+// 문장 번역: 기기 내장 Translation API → Google + MyMemory 중 빠른 쪽
 export async function translateToKorean(text: string): Promise<string> {
   const key = text.trim().toLowerCase();
   if (translationCache.has(key)) return translationCache.get(key)!;
+
+  // 1) 브라우저 내장 Translation API (Safari 18 / Chrome Origin Trial)
+  try {
+    const w = window as any;
+    if (w?.translation?.createTranslator) {
+      const canT = await w.translation.canTranslate({ sourceLanguage: 'en', targetLanguage: 'ko' });
+      if (canT !== 'no') {
+        const translator = await w.translation.createTranslator({ sourceLanguage: 'en', targetLanguage: 'ko' });
+        const r = (await translator.translate(text)).trim();
+        if (r && r.toLowerCase() !== text.toLowerCase()) {
+          translationCache.set(key, r);
+          return r;
+        }
+      }
+    }
+  } catch {}
+
+  // 2) Google + MyMemory 경쟁
   try {
     const result = await Promise.any([tryGoogle(text), tryMyMemory(text)]);
     translationCache.set(key, result);
@@ -149,32 +167,43 @@ export async function translateToKorean(text: string): Promise<string> {
   }
 }
 
-// 단어 번역: Google 이중언어 사전(dt=bd) → 가장 첫 번째(기본) 의미 사용
-// take→가져가다, holding→보유, beautiful→아름다운
+// 단어 번역: 기기 내장 Translation API(Safari 18+) → Google dt=t(일반 신경망) → MyMemory 순 시도
+// 결과가 Apple 번역기와 동일한 엔진(신경망 MT) 우선 사용
 async function translateWordOnly(word: string): Promise<string> {
   const key = `w:${word}`;
   if (translationCache.has(key)) return translationCache.get(key)!;
+
+  // 1) 브라우저 내장 Translation API (Safari 18 / Chrome Origin Trial)
+  try {
+    const w = window as any;
+    if (w?.translation?.createTranslator) {
+      const canT = await w.translation.canTranslate({ sourceLanguage: 'en', targetLanguage: 'ko' });
+      if (canT !== 'no') {
+        const translator = await w.translation.createTranslator({ sourceLanguage: 'en', targetLanguage: 'ko' });
+        const r = (await translator.translate(word)).trim();
+        if (r && r.toLowerCase() !== word.toLowerCase()) {
+          translationCache.set(key, r);
+          return r;
+        }
+      }
+    }
+  } catch {}
+
+  // 2) Google dt=t — 일반 신경망 번역 (Apple 번역기와 동일 계열)
   try {
     const url =
-      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&dt=bd&q=${encodeURIComponent(word)}`;
+      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(word)}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
     if (!res.ok) throw new Error('fail');
     const data = await res.json();
-
-    // dt=bd 응답: data[1] = [[품사, [번역1, 번역2, ...]], ...]
-    // 첫 번째 품사의 첫 번째 번역 = 가장 기본 의미
-    const first = (data?.[1]?.[0]?.[1]?.[0] ?? '').trim();
-    if (first && first.toLowerCase() !== word.toLowerCase()) {
-      translationCache.set(key, first);
-      return first;
-    }
-    // 폴백: 일반 번역 세그먼트
     const seg = ((data?.[0] ?? []) as any[]).map((s: any) => s?.[0] ?? '').join('').trim();
     if (seg && seg.toLowerCase() !== word.toLowerCase()) {
       translationCache.set(key, seg);
       return seg;
     }
   } catch {}
+
+  // 3) MyMemory 폴백
   try {
     const r = await tryMyMemory(word);
     translationCache.set(key, r);
