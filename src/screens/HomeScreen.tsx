@@ -231,11 +231,37 @@ export default function HomeScreen({
         </View>
       )}
 
-      {/* ── 저장된 플레이리스트 (검색 전에만) ── */}
-      {!isSearchMode && playlists.length > 0 && (
+      {/* ── 1. 즐겨찾기 카드 + 2. 플레이리스트 카드 (검색 전에만) ── */}
+      {!isSearchMode && (likedTracks.length > 0 || playlists.length > 0) && (
         <View style={styles.featuredSection}>
-          <Text style={styles.sectionLabel}>저장된 플레이리스트</Text>
+          <Text style={styles.sectionLabel}>보관함</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.featuredRow}>
+
+            {/* 즐겨찾기 카드 */}
+            {likedTracks.length > 0 && (
+              <TouchableOpacity
+                style={[styles.playlistCard, { borderColor: 'rgba(255,215,0,0.3)' }]}
+                onPress={() => onSelectTrack(likedTracks[0], likedTracks)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.playlistArtGrid}>
+                  {likedTracks.slice(0, 4).map((t, i) => (
+                    <View key={i} style={styles.playlistArtCell}>
+                      <Image source={{ uri: t.albumArt }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+                      {i === 0 && (
+                        <View style={styles.favOverlayBadge}>
+                          <Text style={styles.favOverlayText}>★</Text>
+                        </View>
+                      )}
+                    </View>
+                  ))}
+                </View>
+                <Text style={[styles.playlistName, { color: '#FFD60A' }]} numberOfLines={1}>★ 즐겨찾기</Text>
+                <Text style={styles.playlistCount}>{likedTracks.length}곡</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* 저장된 플레이리스트 카드들 */}
             {playlists.map((pl) => (
               <TouchableOpacity
                 key={pl.id}
@@ -253,33 +279,7 @@ export default function HomeScreen({
                 <Text style={styles.playlistCount}>{pl.tracks.length}곡</Text>
               </TouchableOpacity>
             ))}
-          </ScrollView>
-        </View>
-      )}
 
-      {/* ── 즐겨찾기 (검색 전에만) ── */}
-      {!isSearchMode && likedTracks.length > 0 && (
-        <View style={styles.featuredSection}>
-          <Text style={styles.sectionLabel}>★ 즐겨찾기</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.featuredRow}>
-            {likedTracks.map((track) => {
-              const isActive = currentTrack?.id === track.id;
-              return (
-                <TouchableOpacity
-                  key={track.id}
-                  style={[styles.favCard, isActive && styles.favCardActive]}
-                  onPress={() => onSelectTrack(track, likedTracks)}
-                  activeOpacity={0.8}
-                >
-                  <View style={styles.favArtWrap}>
-                    <Image source={{ uri: track.albumArt }} style={styles.favArt} contentFit="cover" />
-                    <View style={styles.favStarBadge}><Text style={styles.favStarText}>★</Text></View>
-                  </View>
-                  <Text style={[styles.featuredName, isActive && { color: colors.primary }]} numberOfLines={2}>{track.name}</Text>
-                  <Text style={styles.featuredCount} numberOfLines={1}>{track.artists[0]}</Text>
-                </TouchableOpacity>
-              );
-            })}
           </ScrollView>
         </View>
       )}
@@ -481,7 +481,15 @@ const styles = StyleSheet.create({
   },
   playlistArtCell: {
     width: '50%', height: undefined, aspectRatio: 1,
+    position: 'relative',
   },
+  favOverlayBadge: {
+    position: 'absolute', top: 4, left: 4,
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  favOverlayText: { fontSize: 11, color: '#FFD60A' },
   playlistName: {
     fontSize: 13, fontWeight: '700', color: '#fff',
     paddingHorizontal: 8, paddingTop: 8, lineHeight: 18,
