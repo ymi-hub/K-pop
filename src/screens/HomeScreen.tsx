@@ -53,31 +53,47 @@ export default function HomeScreen({
 }: Props) {
   const [searchInput, setSearchInput] = useState('');
   const [expandedAlbums, setExpandedAlbums] = useState<Set<string>>(new Set());
+  const [showMoreCount, setShowMoreCount] = useState(30);
 
   const searchQuery = searchInput.trim().toLowerCase();
-  const displayTracks = searchQuery
-    ? tracks.filter((t) =>
+
+  // 검색 결과: instrumental 제외, 이름+아티스트 중복 제거
+  const searchResults = useMemo((): Track[] => {
+    if (!searchQuery) return [];
+    const seen = new Set<string>();
+    return tracks.filter((t) => {
+      if (t.name.toLowerCase().includes('instrumental')) return false;
+      const key = `${t.name.toLowerCase()}||${t.artists[0]?.toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return (
         t.name.toLowerCase().includes(searchQuery) ||
         t.artists.some((a) => a.toLowerCase().includes(searchQuery)) ||
         t.album.toLowerCase().includes(searchQuery)
-      )
-    : tracks;
+      );
+    });
+  }, [tracks, searchQuery]);
+
+  const topResults = searchResults.slice(0, 5);               // 상단 고정 5개
+  const restResults = searchResults.slice(5);                  // 나머지 (최대 100개)
+  const visibleRest = restResults.slice(0, showMoreCount);
+  const canShowMore = showMoreCount < Math.min(restResults.length, 100);
 
   const albums = useMemo((): Album[] => {
     const map = new Map<string, Album>();
-    for (const t of displayTracks) {
+    for (const t of tracks) {
       if (!map.has(t.album)) {
         map.set(t.album, { name: t.album, art: t.albumArt, tracks: [] });
       }
       map.get(t.album)!.tracks.push(t);
     }
     return Array.from(map.values());
-  }, [displayTracks]);
+  }, [tracks]);
 
-  // 최신 5개 앨범 (기본 BTS일 때만 노출)
+  // 최신 5개 앨범
   const featuredAlbums = useMemo(() => albums.slice(0, 5), [albums]);
 
-  // 즐겨찾기 트랙 (좋아요 누른 순서 유지)
+  // 즐겨찾기 트랙
   const likedTracks = useMemo(
     () => tracks.filter((t) => likedTrackIds.has(t.id)),
     [tracks, likedTrackIds]
@@ -85,6 +101,7 @@ export default function HomeScreen({
 
   const clearSearch = () => {
     setSearchInput('');
+    setShowMoreCount(30);
     setExpandedAlbums(new Set());
   };
 
@@ -162,6 +179,16 @@ export default function HomeScreen({
   // FlatList 스크롤 헤더 (검색창 제외 — TextInput이 여기 있으면 리렌더마다 remount되어 포커스 손실)
   const scrollHeader = (
     <>
+      {/* ── 검색 결과 상단 5개 ── */}
+      {searchQuery && topResults.length > 0 && (
+        <View style={styles.featuredSection}>
+          <Text style={styles.sectionLabel}>상위 결과</Text>
+          <View style={styles.trackListCard}>
+            {topResults.map(renderTrack)}
+          </View>
+        </View>
+      )}
+
       {/* ── 즐겨찾기 (검색 전에만) ── */}
       {!searchQuery && likedTracks.length > 0 && (
         <View style={styles.featuredSection}>
@@ -234,10 +261,13 @@ export default function HomeScreen({
         </TouchableOpacity>
       )}
 
-      {/* ── 전체 앨범 섹션 레이블 ── */}
-      <Text style={styles.sectionLabel}>
-        {searchQuery ? `"${searchInput.trim()}" 검색 결과` : '전체 앨범'}
-      </Text>
+      {/* ── 전체 앨범 / 전체 검색결과 레이블 ── */}
+      {!searchQuery && <Text style={styles.sectionLabel}>전체 앨범</Text>}
+      {searchQuery && restResults.length > 0 && (
+        <Text style={styles.sectionLabel}>
+          전체 결과 {searchResults.length}곡
+        </Text>
+      )}
     </>
   );
 
@@ -274,7 +304,38 @@ export default function HomeScreen({
         )}
       </View>
 
-      <FlatList
+      {searchQuery ? (
+        /* ── 검색 모드: 평면 트랙 리스트 ── */
+        <FlatList
+          data={visibleRest}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => renderTrack(item)}
+          ListHeaderComponent={scrollHeader}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: currentTrack ? 110 : 40 }}
+          ListFooterComponent={
+            canShowMore ? (
+              <TouchableOpacity
+                style={styles.loadMoreBtn}
+                onPress={() => setShowMoreCount((c) => Math.min(c + 30, 100))}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.loadMoreText}>더보기 ({Math.min(restResults.length, 100) - showMoreCount}곡 더)</Text>
+              </TouchableOpacity>
+            ) : null
+          }
+          ListEmptyComponent={
+            topResults.length === 0 ? (
+              <View style={styles.empty}>
+                <Text style={styles.emptyIcon}>🔍</Text>
+                <Text style={styles.emptyText}>"{searchInput.trim()}" 검색 결과가 없습니다</Text>
+              </View>
+            ) : null
+          }
+        />
+      ) : (
+        /* ── 브라우즈 모드: 앨범 그룹 ── */
+        <FlatList
           data={albums}
           keyExtractor={(item) => item.name}
           renderItem={renderAlbum}
@@ -283,15 +344,11 @@ export default function HomeScreen({
           contentContainerStyle={{ paddingBottom: currentTrack ? 110 : 40 }}
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Text style={styles.emptyIcon}>
-                {searchQuery ? '🔍' : loadError ? '⚠️' : '🎵'}
-              </Text>
+              <Text style={styles.emptyIcon}>{loadError ? '⚠️' : '🎵'}</Text>
               <Text style={[styles.emptyText, loadError && { color: colors.primary }]}>
-                {searchQuery
-                  ? `"${searchInput.trim()}" 검색 결과가 없습니다`
-                  : loadError ?? 'BTS 곡을 불러오는 중...\n잠시 기다려주세요'}
+                {loadError ?? 'BTS 곡을 불러오는 중...\n잠시 기다려주세요'}
               </Text>
-              {loadError && !searchQuery && (
+              {loadError && (
                 <TouchableOpacity
                   style={styles.retryBtn}
                   onPress={() => {
@@ -305,6 +362,7 @@ export default function HomeScreen({
             </View>
           }
         />
+      )}
 
       {currentTrack && (
         <MiniPlayer
@@ -482,4 +540,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24, paddingVertical: 12, borderRadius: 24,
   },
   retryText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  loadMoreBtn: {
+    marginHorizontal: spacing.lg, marginVertical: 16,
+    paddingVertical: 14, borderRadius: borderRadius.xl,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+  },
+  loadMoreText: { fontSize: 15, fontWeight: '600', color: 'rgba(255,255,255,0.7)' },
 });
