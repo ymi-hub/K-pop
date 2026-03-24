@@ -12,14 +12,12 @@ import {
   LayoutAnimation,
   UIManager,
   Platform,
-  ActivityIndicator,
   Dimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { colors, spacing, borderRadius } from '../theme';
 import { Track } from '../types';
 import MiniPlayer from '../components/MiniPlayer';
-import { searchTracks } from '../services/itunes';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -54,12 +52,16 @@ export default function HomeScreen({
   onSelectTrack, onOpenPlayer, onVocabPress, onPlayPause, onNext, loadError,
 }: Props) {
   const [searchInput, setSearchInput] = useState('');
-  const [searchedArtist, setSearchedArtist] = useState('');
-  const [artistTracks, setArtistTracks] = useState<Track[]>([]);
-  const [isSearchLoading, setIsSearchLoading] = useState(false);
   const [expandedAlbums, setExpandedAlbums] = useState<Set<string>>(new Set());
 
-  const displayTracks = searchedArtist ? artistTracks : tracks;
+  const searchQuery = searchInput.trim().toLowerCase();
+  const displayTracks = searchQuery
+    ? tracks.filter((t) =>
+        t.name.toLowerCase().includes(searchQuery) ||
+        t.artists.some((a) => a.toLowerCase().includes(searchQuery)) ||
+        t.album.toLowerCase().includes(searchQuery)
+      )
+    : tracks;
 
   const albums = useMemo((): Album[] => {
     const map = new Map<string, Album>();
@@ -81,21 +83,8 @@ export default function HomeScreen({
     [tracks, likedTrackIds]
   );
 
-  const handleSearch = async () => {
-    const q = searchInput.trim();
-    if (!q) { setSearchedArtist(''); setArtistTracks([]); return; }
-    setIsSearchLoading(true);
-    setSearchedArtist(q);
-    setExpandedAlbums(new Set());
-    const result = await searchTracks(q);
-    setArtistTracks(result);
-    setIsSearchLoading(false);
-  };
-
   const clearSearch = () => {
     setSearchInput('');
-    setSearchedArtist('');
-    setArtistTracks([]);
     setExpandedAlbums(new Set());
   };
 
@@ -174,7 +163,7 @@ export default function HomeScreen({
   const scrollHeader = (
     <>
       {/* ── 즐겨찾기 (검색 전에만) ── */}
-      {!searchedArtist && likedTracks.length > 0 && (
+      {!searchQuery && likedTracks.length > 0 && (
         <View style={styles.featuredSection}>
           <Text style={styles.sectionLabel}>★ 즐겨찾기</Text>
           <ScrollView
@@ -209,7 +198,7 @@ export default function HomeScreen({
       )}
 
       {/* ── 최신 앨범 5개 가로 스크롤 (검색 전에만) ── */}
-      {!searchedArtist && featuredAlbums.length > 0 && (
+      {!searchQuery && featuredAlbums.length > 0 && (
         <View style={styles.featuredSection}>
           <Text style={styles.sectionLabel}>최신 앨범</Text>
           <ScrollView
@@ -234,7 +223,7 @@ export default function HomeScreen({
       )}
 
       {/* ── 단어장 버튼 ── */}
-      {!searchedArtist && (
+      {!searchQuery && (
         <TouchableOpacity style={styles.vocabCard} onPress={onVocabPress} activeOpacity={0.8}>
           <Text style={styles.vocabCardIcon}>📖</Text>
           <View style={styles.vocabCardInfo}>
@@ -247,7 +236,7 @@ export default function HomeScreen({
 
       {/* ── 전체 앨범 섹션 레이블 ── */}
       <Text style={styles.sectionLabel}>
-        {searchedArtist ? `"${searchedArtist}" 검색 결과` : '전체 앨범'}
+        {searchQuery ? `"${searchInput.trim()}" 검색 결과` : '전체 앨범'}
       </Text>
     </>
   );
@@ -260,7 +249,7 @@ export default function HomeScreen({
       <View style={styles.header}>
         <View>
           <Text style={styles.subtitle}>K-pop English</Text>
-          <Text style={styles.title}>{searchedArtist || 'POP ENGLISH'}</Text>
+          <Text style={styles.title}>{searchQuery || 'POP ENGLISH'}</Text>
         </View>
       </View>
       <View style={styles.searchContainer}>
@@ -269,28 +258,18 @@ export default function HomeScreen({
           style={styles.searchInput}
           value={searchInput}
           onChangeText={setSearchInput}
-          placeholder="가수 · 곡 · 앨범 검색"
+          placeholder="아티스트 · 노래 · 앨범 검색"
           placeholderTextColor="rgba(255,255,255,0.35)"
           returnKeyType="search"
-          onSubmitEditing={handleSearch}
         />
         {searchInput.length > 0 && (
           <TouchableOpacity onPress={clearSearch} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Text style={styles.clearBtn}>✕</Text>
           </TouchableOpacity>
         )}
-        <TouchableOpacity onPress={handleSearch} style={styles.searchBtn}>
-          <Text style={styles.searchBtnText}>검색</Text>
-        </TouchableOpacity>
       </View>
 
-      {isSearchLoading ? (
-        <View style={styles.empty}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.emptyText}>검색 중...</Text>
-        </View>
-      ) : (
-        <FlatList
+      <FlatList
           data={albums}
           keyExtractor={(item) => item.name}
           renderItem={renderAlbum}
@@ -300,14 +279,14 @@ export default function HomeScreen({
           ListEmptyComponent={
             <View style={styles.empty}>
               <Text style={styles.emptyIcon}>
-                {searchedArtist ? '🔍' : loadError ? '⚠️' : '🎵'}
+                {searchQuery ? '🔍' : loadError ? '⚠️' : '🎵'}
               </Text>
               <Text style={[styles.emptyText, loadError && { color: colors.primary }]}>
-                {searchedArtist
-                  ? `"${searchedArtist}" 검색 결과가 없습니다`
+                {searchQuery
+                  ? `"${searchInput.trim()}" 검색 결과가 없습니다`
                   : loadError ?? 'BTS 곡을 불러오는 중...\n잠시 기다려주세요'}
               </Text>
-              {loadError && !searchedArtist && (
+              {loadError && !searchQuery && (
                 <TouchableOpacity
                   style={styles.retryBtn}
                   onPress={() => {
@@ -321,7 +300,6 @@ export default function HomeScreen({
             </View>
           }
         />
-      )}
 
       {currentTrack && (
         <MiniPlayer
@@ -365,12 +343,6 @@ const styles = StyleSheet.create({
   searchIcon: { fontSize: 16 },
   searchInput: { flex: 1, fontSize: 17, color: '#fff', paddingVertical: 0 },
   clearBtn: { fontSize: 14, color: 'rgba(255,255,255,0.4)', paddingHorizontal: 4 },
-  searchBtn: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: 16, paddingVertical: 8,
-    borderRadius: borderRadius.full,
-  },
-  searchBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
 
   /* ── 최신 앨범 featured ── */
   featuredSection: {
