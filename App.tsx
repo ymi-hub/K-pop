@@ -35,6 +35,7 @@ import {
   saveLiked,
   subscribeVocab,
 } from './src/services/syncService';
+import { cleanupPlaylists } from './src/services/playlistStorage';
 import { getSavedWords } from './src/services/vocabStorage';
 
 type Screen = 'home' | 'player' | 'vocab';
@@ -125,7 +126,7 @@ export default function App() {
   const shuffleModeRef = useRef(false);
   const repeatModeRef = useRef<RepeatMode>('off');
 
-  useEffect(() => { loadTracks(); }, []);
+  useEffect(() => { loadTracks(); cleanupPlaylists(); }, []);
   useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
   useEffect(() => {
     tracksRef.current = tracks;

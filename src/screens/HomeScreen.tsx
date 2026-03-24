@@ -64,13 +64,12 @@ export default function HomeScreen({
   const [searchedQuery, setSearchedQuery] = useState('');       // 실제 검색된 쿼리
   const [searchedTracks, setSearchedTracks] = useState<Track[]>([]);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
-  const [showMoreCount, setShowMoreCount] = useState(30);
   const [expandedAlbums, setExpandedAlbums] = useState<Set<string>>(new Set());
   const [playlists, setPlaylists] = useState<Playlist[]>(() => getPlaylists());
 
   const isSearchMode = searchedQuery.length > 0;
 
-  // 검색 결과: instrumental 제외, 이름+아티스트 중복 제거
+  // 검색 결과: instrumental 제외, 이름+아티스트 중복 제거, 전체 노출
   const filteredResults = useMemo((): Track[] => {
     if (!searchedTracks.length) return [];
     const seen = new Set<string>();
@@ -82,11 +81,6 @@ export default function HomeScreen({
       return true;
     });
   }, [searchedTracks]);
-
-  const topResults = filteredResults.slice(0, 5);
-  const restResults = filteredResults.slice(5);
-  const visibleRest = restResults.slice(0, showMoreCount);
-  const canShowMore = showMoreCount < Math.min(restResults.length, 100);
 
   const albums = useMemo((): Album[] => {
     const map = new Map<string, Album>();
@@ -110,7 +104,6 @@ export default function HomeScreen({
     if (!q) { clearSearch(); return; }
     setIsSearchLoading(true);
     setSearchedQuery(q);
-    setShowMoreCount(30);
     setExpandedAlbums(new Set());
     const result = await searchTracks(q);
     setSearchedTracks(result);
@@ -121,7 +114,6 @@ export default function HomeScreen({
     setSearchInput('');
     setSearchedQuery('');
     setSearchedTracks([]);
-    setShowMoreCount(30);
     setExpandedAlbums(new Set());
   };
 
@@ -152,7 +144,6 @@ export default function HomeScreen({
     setSearchInput(pl.name);
     setSearchedQuery(pl.name);
     setSearchedTracks(pl.tracks);
-    setShowMoreCount(30);
     setExpandedAlbums(new Set());
   };
 
@@ -230,18 +221,13 @@ export default function HomeScreen({
   // FlatList 스크롤 헤더 (검색창 제외 — TextInput이 여기 있으면 리렌더마다 remount되어 포커스 손실)
   const scrollHeader = (
     <>
-      {/* ── 검색 결과 상단 5개 ── */}
-      {isSearchMode && topResults.length > 0 && (
-        <View style={styles.featuredSection}>
-          <View style={styles.sectionRow}>
-            <Text style={styles.sectionLabel}>상위 결과</Text>
-            <TouchableOpacity onPress={handleSavePlaylist} style={styles.saveBtn} activeOpacity={0.8}>
-              <Text style={styles.saveBtnText}>+ 플레이리스트 저장</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.trackListCard}>
-            {topResults.map((t) => renderTrack(t, filteredResults))}
-          </View>
+      {/* ── 검색 결과 헤더 ── */}
+      {isSearchMode && filteredResults.length > 0 && (
+        <View style={styles.sectionRow}>
+          <Text style={styles.sectionLabel}>검색 결과 {filteredResults.length}곡</Text>
+          <TouchableOpacity onPress={handleSavePlaylist} style={styles.saveBtn} activeOpacity={0.8}>
+            <Text style={styles.saveBtnText}>+ 플레이리스트 저장</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -331,11 +317,8 @@ export default function HomeScreen({
         </TouchableOpacity>
       )}
 
-      {/* ── 섹션 레이블 ── */}
+      {/* ── 전체 앨범 레이블 ── */}
       {!isSearchMode && <Text style={styles.sectionLabel}>전체 앨범</Text>}
-      {isSearchMode && restResults.length > 0 && (
-        <Text style={styles.sectionLabel}>전체 결과 {filteredResults.length}곡</Text>
-      )}
     </>
   );
 
@@ -379,32 +362,19 @@ export default function HomeScreen({
           <Text style={styles.emptyText}>검색 중...</Text>
         </View>
       ) : isSearchMode ? (
-        /* ── 검색 모드: 평면 트랙 리스트 ── */
+        /* ── 검색 모드: 전체 트랙 리스트 ── */
         <FlatList
-          data={visibleRest}
+          data={filteredResults}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => renderTrack(item, filteredResults)}
           ListHeaderComponent={scrollHeader}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: currentTrack ? 110 : 40 }}
-          ListFooterComponent={
-            canShowMore ? (
-              <TouchableOpacity
-                style={styles.loadMoreBtn}
-                onPress={() => setShowMoreCount((c) => Math.min(c + 30, 100))}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.loadMoreText}>더보기 ({Math.min(restResults.length, 100) - showMoreCount}곡 더)</Text>
-              </TouchableOpacity>
-            ) : null
-          }
           ListEmptyComponent={
-            topResults.length === 0 ? (
-              <View style={styles.empty}>
-                <Text style={styles.emptyIcon}>🔍</Text>
-                <Text style={styles.emptyText}>"{searchedQuery}" 검색 결과가 없습니다</Text>
-              </View>
-            ) : null
+            <View style={styles.empty}>
+              <Text style={styles.emptyIcon}>🔍</Text>
+              <Text style={styles.emptyText}>"{searchedQuery}" 검색 결과가 없습니다</Text>
+            </View>
           }
         />
       ) : (
