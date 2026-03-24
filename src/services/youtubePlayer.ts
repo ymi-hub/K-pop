@@ -49,7 +49,8 @@ export function createYTPlayer(
       height: '1', width: '1',
       playerVars: { autoplay: 0, controls: 0, playsinline: 1, rel: 0, fs: 0 },
       events: {
-        onReady: () => { player.setVolume(currentVolume); player.unMute(); resolve(); },
+        // 시스템 볼륨 그대로 사용 — setVolume(100) + unMute()
+        onReady: () => { player.unMute(); player.setVolume(100); resolve(); },
         onStateChange: (e: any) => onStateChange(e.data),
       },
     });
@@ -62,8 +63,8 @@ export function ytLoadVideo(videoId: string): void {
 
 export function ytPlay(): void {
   if (!player) return;
-  player.unMute();           // Chrome autoplay policy → muted by default
-  player.setVolume(currentVolume);
+  player.unMute();        // Chrome autoplay policy → muted by default
+  player.setVolume(100);  // 시스템 볼륨 100% 추종
   player.playVideo();
 }
 export function ytPause(): void { player?.pauseVideo(); }
@@ -73,12 +74,4 @@ export function ytGetCurrentTime(): number {
 }
 export function ytGetDuration(): number {
   return Math.round((player?.getDuration?.() ?? 0) * 1000);
-}
-
-let currentVolume = 5;
-export function ytSetVolume(vol: number): void {
-  currentVolume = Math.round(vol);
-  if (!player) return;
-  player.unMute();
-  player.setVolume(currentVolume);
 }

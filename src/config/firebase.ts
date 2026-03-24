@@ -1,10 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
-import { getAnalytics } from 'firebase/analytics';
+import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 
-// Firebase K-pop 프로젝트 설정
-// Firebase Console > 프로젝트 설정 > 앱 추가 후 아래 값을 교체하세요
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -19,4 +16,5 @@ const app = initializeApp(firebaseConfig);
 
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+export const googleProvider = new GoogleAuthProvider();
 export default app;

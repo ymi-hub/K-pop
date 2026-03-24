@@ -7,17 +7,14 @@ import {
   Dimensions,
   StatusBar,
   Animated,
-  Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import Slider from '@react-native-community/slider';
 import { colors, spacing, borderRadius } from '../theme';
 import { Track, LyricLine, VocabEntry } from '../types';
 import VocabCard from '../components/VocabCard';
 import LyricsView from '../components/LyricsView';
-import { ytSetVolume } from '../services/youtubePlayer';
 
 const { width } = Dimensions.get('window');
 const ALBUM_ART_SIZE = width - 72;
@@ -49,42 +46,6 @@ interface Props {
 function formatTime(ms: number): string {
   const s = Math.floor(Math.max(0, ms) / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-}
-
-// 웹 전용 볼륨 슬라이더
-function VolumeSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  if (Platform.OS === 'web') {
-    const handleChange = (e: any) => onChange(Number(e.target.value));
-    return (
-      <input
-        type="range"
-        min={0}
-        max={100}
-        value={value}
-        onChange={handleChange}
-        onInput={handleChange}
-        style={{
-          flex: 1,
-          accentColor: '#FC3C44',
-          cursor: 'pointer',
-          height: 4,
-          margin: '0 8px',
-        } as any}
-      />
-    );
-  }
-  return (
-    <Slider
-      style={{ flex: 1, height: 24 }}
-      minimumValue={0}
-      maximumValue={100}
-      value={value}
-      onValueChange={onChange}
-      minimumTrackTintColor="rgba(255,255,255,0.4)"
-      maximumTrackTintColor="rgba(255,255,255,0.15)"
-      thumbTintColor="rgba(255,255,255,0.6)"
-    />
-  );
 }
 
 // 웹 전용 프로그레스 슬라이더
@@ -141,7 +102,6 @@ export default function PlayerScreen({
 }: Props) {
   const [showLyrics, setShowLyrics] = useState(false);
   const [activeVocab, setActiveVocab] = useState<VocabEntry | null>(null);
-  const [volume, setVolume] = useState(5);
   const [showRemaining, setShowRemaining] = useState(true);
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
 
@@ -151,11 +111,6 @@ export default function PlayerScreen({
       tension: 55, friction: 12, useNativeDriver: true,
     }).start();
   }, [isPlaying]);
-
-  const handleVolumeChange = (v: number) => {
-    setVolume(v);
-    ytSetVolume(v);
-  };
 
   const hasLyrics = lyrics.length > 0;
   const adjustedMs = currentMs + lyricsOffset;
@@ -218,13 +173,6 @@ export default function PlayerScreen({
           <Text style={[styles.sideBtnIcon, { color: repeatColor }]}>{repeatIcon}</Text>
           {repeatMode !== 'off' && <View style={styles.activeDot} />}
         </TouchableOpacity>
-      </View>
-
-      {/* Volume */}
-      <View style={styles.volumeRow}>
-        <Text style={styles.volIcon}>🔈</Text>
-        <VolumeSlider value={volume} onChange={handleVolumeChange} />
-        <Text style={styles.volIcon}>🔊</Text>
       </View>
 
       {/* Bottom row: sync + lyrics toggle */}
@@ -422,13 +370,6 @@ const styles = StyleSheet.create({
     width: 4, height: 4, borderRadius: 2,
     backgroundColor: colors.primary, marginTop: 3,
   },
-
-  /* Volume */
-  volumeRow: {
-    flexDirection: 'row', alignItems: 'center',
-    gap: 6, marginBottom: 18,
-  },
-  volIcon: { fontSize: 16 },
 
   /* Bottom row */
   bottomRow: {
