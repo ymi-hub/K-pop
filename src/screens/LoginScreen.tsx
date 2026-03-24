@@ -1,16 +1,24 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Dimensions, Platform, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { initiateSpotifyLogin } from '../services/spotifyAuth';
 import { colors, spacing, borderRadius } from '../theme';
 
 const { height } = Dimensions.get('window');
 
-interface Props {
-  onStart: () => void;
-}
+export default function LoginScreen() {
+  const handleLoginPress = () => {
+    if (Platform.OS !== 'web') {
+      Alert.alert(
+        '웹에서만 이용 가능',
+        'Spotify 로그인은 현재 웹 환경에서만 지원됩니다. 브라우저에서 접속해주세요.'
+      );
+      return;
+    }
+    initiateSpotifyLogin();
+  };
 
-export default function LoginScreen({ onStart }: Props) {
   return (
     <LinearGradient
       colors={['#1a1a2e', '#16213e', '#0f3460', '#000000']}
@@ -39,15 +47,15 @@ export default function LoginScreen({ onStart }: Props) {
         ))}
       </View>
 
-      {/* 시작 버튼 */}
+      {/* Spotify 로그인 버튼 */}
       <View style={styles.loginArea}>
-        <TouchableOpacity style={styles.startBtn} onPress={onStart}>
-          <Ionicons name="musical-notes" size={24} color="#fff" />
-          <Text style={styles.startBtnText}>BTS 곡 듣기 시작</Text>
+        <TouchableOpacity style={styles.spotifyBtn} onPress={handleLoginPress}>
+          <Ionicons name="logo-github" size={24} color="#000" />
+          <Text style={styles.spotifyBtnText}>Spotify로 시작하기</Text>
         </TouchableOpacity>
         <Text style={styles.notice}>
-          로그인 없이 무료로 이용 가능{'\n'}
-          YouTube 전곡 재생 + 실시간 가사 번역
+          Spotify 계정이 필요합니다{'\n'}
+          무료 계정은 30초 미리듣기만 제공됩니다
         </Text>
       </View>
     </LinearGradient>
@@ -110,21 +118,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
   },
-  startBtn: {
+  spotifyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.primary,
+    backgroundColor: '#1DB954',
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xl,
     borderRadius: borderRadius.full,
     gap: spacing.sm,
     width: '100%',
   },
-  startBtnText: {
+  spotifyBtnText: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#fff',
+    color: '#000',
   },
   notice: {
     fontSize: 12,

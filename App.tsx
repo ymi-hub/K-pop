@@ -1,380 +1,214 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform, Image } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
-import * as Font from 'expo-font';
 import HomeScreen from './src/screens/HomeScreen';
 import PlayerScreen from './src/screens/PlayerScreen';
-import VocabListScreen from './src/screens/VocabListScreen';
+import LoginScreen from './src/screens/LoginScreen';
 import { Track, LyricLine } from './src/types';
-import { getBTSTracks } from './src/services/itunes';
+import { colors } from './src/theme';
+import { getStoredToken, handleSpotifyCallback } from './src/services/spotifyAuth';
+import { getBTSAllTracks } from './src/services/spotify';
 import { getLyrics } from './src/services/lyrics';
-import {
-  initYouTubeAPI,
-  createYTPlayer,
-  ytLoadVideo,
-  ytPlay,
-  ytPause,
-  ytSeek,
-  ytGetCurrentTime,
-  ytGetDuration,
-  YT_STATE,
-} from './src/services/youtubePlayer';
-import { searchYouTube } from './src/services/youtubeSearch';
-import { auth, googleProvider } from './src/config/firebase';
-import {
-  onAuthStateChanged,
-  signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
-  signOut,
-  User,
-} from 'firebase/auth';
-import {
-  subscribeLiked,
-  saveLiked,
-  subscribeVocab,
-} from './src/services/syncService';
-import { cleanupPlaylists } from './src/services/playlistStorage';
-import { getSavedWords } from './src/services/vocabStorage';
 
-type Screen = 'home' | 'player' | 'vocab';
-type RepeatMode = 'off' | 'one' | 'all';
-
-// localStorage fallback (로그아웃 상태)
-function loadLikedLocal(): Set<string> {
-  try {
-    const s = localStorage.getItem('kpop_liked');
-    return s ? new Set(JSON.parse(s)) : new Set();
-  } catch { return new Set(); }
-}
-function saveLikedLocal(set: Set<string>) {
-  try { localStorage.setItem('kpop_liked', JSON.stringify([...set])); } catch {}
-}
+type Screen = 'login' | 'home' | 'player';
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>('home');
+  const [screen, setScreen] = useState<Screen>('login');
+  const [token, setToken] = useState<string | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
-  const [durationMs, setDurationMs] = useState(0);
-  const [lyricsOffset, setLyricsOffset] = useState(0);
-  const [shuffleMode, setShuffleMode] = useState(false);
-  const [repeatMode, setRepeatMode] = useState<RepeatMode>('off');
-  const [likedTracks, setLikedTracks] = useState<Set<string>>(loadLikedLocal);
-  // 보관함(즐겨찾기/플레이리스트) 목록 상태 — 플레이어에서 홈으로 돌아올 때 유지
-  const [homeListQuery, setHomeListQuery] = useState('');
-  const [homeListTracks, setHomeListTracks] = useState<Track[]>([]);
-
-  // ── Firebase Auth ──────────────────────────────────────────
-  const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(false);
-  const likedUnsubRef = useRef<(() => void) | null>(null);
-
-  useEffect(() => {
-    // redirect 결과 처리 (모바일에서 signInWithRedirect 후)
-    getRedirectResult(auth).catch(() => {});
-
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      // 이전 구독 해제
-      likedUnsubRef.current?.();
-      if (u) {
-        // 로그인 → Firestore 실시간 구독
-        likedUnsubRef.current = subscribeLiked(u.uid, (ids) => {
-          setLikedTracks(new Set(ids));
-        });
-      } else {
-        // 로그아웃 → localStorage로 복원
-        setLikedTracks(loadLikedLocal());
-      }
-    });
-    return () => { unsub(); likedUnsubRef.current?.(); };
-  }, []);
-
-  const handleGoogleLogin = async () => {
-    setAuthLoading(true);
-    try {
-      // 모바일 브라우저는 popup 차단 가능 → redirect 우선
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(
-        typeof navigator !== 'undefined' ? navigator.userAgent : ''
-      );
-      if (isMobile) {
-        await signInWithRedirect(auth, googleProvider);
-      } else {
-        await signInWithPopup(auth, googleProvider);
-      }
-    } catch (e: any) {
-      console.error('Google login error:', e.message);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    await signOut(auth);
-  };
-
-  // ── Refs ───────────────────────────────────────────────────
+  const [isLoading, setIsLoading] = useState(true);
+  const playerRef = useRef<Audio.Sound | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const currentIndexRef = useRef(0);
-  const tracksRef = useRef<Track[]>([]);
-  const queueRef = useRef<Track[]>([]); // 현재 재생 큐 (BTS 또는 검색/플레이리스트)
-  const ytReadyRef = useRef(false);
-  const currentTrackRef = useRef<Track | null>(null);
-  const shuffleModeRef = useRef(false);
-  const repeatModeRef = useRef<RepeatMode>('off');
 
-  useEffect(() => { loadTracks(); cleanupPlaylists(); }, []);
-  useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
+  // 앱 시작 시 토큰 확인 및 OAuth 콜백 처리
   useEffect(() => {
-    tracksRef.current = tracks;
-    if (queueRef.current.length === 0) queueRef.current = tracks; // 초기 큐 = BTS 트랙
-  }, [tracks]);
-  useEffect(() => { shuffleModeRef.current = shuffleMode; }, [shuffleMode]);
-  useEffect(() => { repeatModeRef.current = repeatMode; }, [repeatMode]);
-
-  const getNextIndex = useCallback((current: number): number => {
-    const q = queueRef.current;
-    if (shuffleModeRef.current) {
-      let idx = Math.floor(Math.random() * q.length);
-      if (q.length > 1 && idx === current) idx = (idx + 1) % q.length;
-      return idx;
-    }
-    return (current + 1) % q.length;
-  }, []);
-
-  // ── YouTube + Media Session 초기화 ─────────────────────────
-  useEffect(() => {
-    if (typeof document !== 'undefined') {
-      const fontMap = Ionicons.font as Record<string, any>;
-      const fontUrl = Object.values(fontMap)[0];
-      if (fontUrl) {
-        const style = document.createElement('style');
-        style.textContent = `@font-face { font-family: 'Ionicons'; src: url('${fontUrl}') format('truetype'); }`;
-        document.head.appendChild(style);
-      }
-    }
-    Font.loadAsync({ ...Ionicons.font }).catch(() => {});
-
-    if (Platform.OS === 'web') {
-      initYouTubeAPI().then(() => {
-        createYTPlayer((state) => {
-          if (state === YT_STATE.PLAYING) {
-            setIsPlaying(true);
-            setTimeout(async () => {
-              const dur = ytGetDuration();
-              if (dur <= 0) return;
-              setDurationMs(dur);
-              const track = currentTrackRef.current;
-              if (!track) return;
-              const diffMs = dur - track.durationMs;
-              if (Math.abs(diffMs) > 1000) {
-                const newLyrics = await getLyrics(track.name, track.artists[0], dur);
-                if (newLyrics.length > 0) { setLyrics(newLyrics); setLyricsOffset(0); return; }
-                if (diffMs > 1000 && diffMs < 30000) setLyricsOffset(-diffMs);
-              }
-            }, 800);
-          } else if (state === YT_STATE.PAUSED) {
-            setIsPlaying(false);
-          } else if (state === YT_STATE.ENDED) {
-            setIsPlaying(false);
-            if (repeatModeRef.current === 'one') { ytSeek(0); ytPlay(); return; }
-            const nextIdx = getNextIndex(currentIndexRef.current);
-            if (queueRef.current[nextIdx]) playTrack(queueRef.current[nextIdx], nextIdx);
-          }
-        });
-        ytReadyRef.current = true;
-
-        if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-          const ms = navigator.mediaSession;
-          ms.setActionHandler('play', () => { ytPlay(); setIsPlaying(true); });
-          ms.setActionHandler('pause', () => { ytPause(); setIsPlaying(false); });
-          ms.setActionHandler('previoustrack', () => {
-            const q = queueRef.current;
-            const prevIdx = (currentIndexRef.current - 1 + q.length) % q.length;
-            if (q[prevIdx]) playTrack(q[prevIdx], prevIdx);
-          });
-          ms.setActionHandler('nexttrack', () => {
-            const nextIdx = getNextIndex(currentIndexRef.current);
-            if (queueRef.current[nextIdx]) playTrack(queueRef.current[nextIdx], nextIdx);
-          });
-          ms.setActionHandler('seekto', (details) => {
-            if (details.seekTime != null) {
-              const ms2 = details.seekTime * 1000;
-              ytSeek(ms2); setCurrentMs(ms2);
+    const initializeApp = async () => {
+      try {
+        // 웹 환경에서 OAuth 콜백 처리
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          const params = new URLSearchParams(window.location.search);
+          const code = params.get('code');
+          if (code) {
+            const t = await handleSpotifyCallback(code);
+            if (t) {
+              setToken(t);
+              setScreen('home');
+              window.history.replaceState({}, '', '/');
             }
-          });
+            return;
+          }
         }
-      });
-    }
+
+        // 저장된 토큰 확인
+        const stored = await getStoredToken();
+        if (stored) {
+          setToken(stored);
+          setScreen('home');
+        }
+      } catch (error) {
+        console.error('App initialization error:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initializeApp();
   }, []);
 
+  // 토큰 있으면 BTS 곡 로드
   useEffect(() => {
-    if (isPlaying) {
-      timerRef.current = setInterval(() => setCurrentMs(ytGetCurrentTime()), 500);
+    if (!token) return;
+    getBTSAllTracks(token).then((t) => setTracks(t)).catch(console.error);
+  }, [token]);
+
+  // 재생 상태 동기화 (데이터 포맷팅/UI 업데이트용)
+  // expo-av의 onPlaybackStatusUpdate로 시간 업데이트됨
+  // 이것은 보조 역할만 함
+  useEffect(() => {
+    if (isPlaying && playerRef.current) {
+      timerRef.current = setInterval(() => {
+        setCurrentMs((ms) => ms + 500);
+      }, 500);
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [isPlaying]);
 
-  // ── Player ─────────────────────────────────────────────────
-  const playTrack = async (track: Track, index: number, navigate = true) => {
+  const handleSelectTrack = async (track: Track, index: number) => {
     setCurrentTrack(track);
-    currentTrackRef.current = track;
     setCurrentIndex(index);
-    currentIndexRef.current = index;
-    if (navigate) setScreen('player');
+    setScreen('player');
     setIsPlaying(false);
     setCurrentMs(0);
-    setDurationMs(track.durationMs);
-    setLyricsOffset(0);
 
-    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-      navigator.mediaSession.metadata = new (window as any).MediaMetadata({
-        title: track.name,
-        artist: track.artists[0] ?? '',
-        album: track.album ?? '',
-        artwork: [{ src: track.albumArt, sizes: '600x600', type: 'image/jpeg' }],
-      });
-    }
-
-    const [l, videoId] = await Promise.all([
-      getLyrics(track.name, track.artists[0], track.durationMs),
-      ytReadyRef.current ? searchYouTube(track.name, track.artists[0]) : Promise.resolve(null),
-    ]);
-    setLyrics(l);
-    if (videoId) ytLoadVideo(videoId);
-    else console.warn('YouTube video not found:', track.name);
-  };
-
-  const loadTracks = () => {
-    setScreen('home');
-    getBTSTracks()
-      .then((t) => {
-        if (t.length === 0) setLoadError('곡을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.');
-        else { setLoadError(null); setTracks(t); }
-      })
-      .catch((e) => setLoadError(`오류: ${e.message ?? e}`));
-  };
-
-  const handleNext = useCallback(() => {
-    if (repeatModeRef.current === 'one') { ytSeek(0); ytPlay(); return; }
-    const nextIdx = getNextIndex(currentIndexRef.current);
-    if (queueRef.current[nextIdx]) playTrack(queueRef.current[nextIdx], nextIdx);
-  }, []);
-
-  const handlePrev = useCallback(() => {
-    if (currentMs > 3000) { ytSeek(0); setCurrentMs(0); }
-    else {
-      const q = queueRef.current;
-      const prevIdx = (currentIndexRef.current - 1 + q.length) % q.length;
-      if (q[prevIdx]) playTrack(q[prevIdx], prevIdx);
-    }
-  }, [currentMs]);
-
-  const handlePlayPause = () => {
-    if (isPlaying) {
-      ytPause(); setIsPlaying(false);
-      if (typeof navigator !== 'undefined' && 'mediaSession' in navigator)
-        navigator.mediaSession.playbackState = 'paused';
-    } else {
-      ytPlay(); setIsPlaying(true);
-      if (typeof navigator !== 'undefined' && 'mediaSession' in navigator)
-        navigator.mediaSession.playbackState = 'playing';
-    }
-  };
-
-  const handleToggleLike = (trackId: string) => {
-    setLikedTracks((prev) => {
-      const next = new Set(prev);
-      if (next.has(trackId)) next.delete(trackId);
-      else next.add(trackId);
-      const ids = [...next];
-      if (user) {
-        // 로그인 상태: Firestore 저장 (실시간 sync)
-        saveLiked(user.uid, ids);
-      } else {
-        // 비로그인: localStorage
-        saveLikedLocal(next);
+    // 기존 소리 정지
+    if (playerRef.current) {
+      try {
+        await playerRef.current.unloadAsync();
+      } catch (error) {
+        console.error('Error unloading previous audio:', error);
       }
-      return next;
-    });
+    }
+
+    // 가사 로드
+    try {
+      const l = await getLyrics(track.name, track.artists[0]);
+      setLyrics(l);
+    } catch (error) {
+      console.error('Error loading lyrics:', error);
+      setLyrics([]);
+    }
+
+    // 미리듣기 재생 (30초) - Spotify API 제한
+    if (track.previewUrl) {
+      try {
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+        });
+
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: track.previewUrl },  // ← 30초 미리듣기 URL
+          { shouldPlay: false }
+        );
+
+        playerRef.current = sound;
+
+        // 현재 시간 업데이트 리스너
+        sound.setOnPlaybackStatusUpdate((status) => {
+          if ('isLoaded' in status && status.isLoaded) {
+            if (!status.didJustFinish) {
+              setCurrentMs(Math.round(status.positionMillis || 0));
+            } else {
+              setIsPlaying(false);
+              handleNext(index);
+            }
+          }
+        });
+
+        // 재생 시작
+        await sound.playAsync();
+        setIsPlaying(true);
+      } catch (error) {
+        console.error('Error playing preview:', error);
+        setLyrics([]);
+      }
+    } else {
+      // 전곡 재생을 위한 Spotify Web Playback SDK 통합 필요
+      console.log('전곡 재생을 위해서는 Spotify Premium 계정과 Web Playback SDK가 필요합니다');
+    }
   };
 
-  const handleToggleRepeat = () => {
-    setRepeatMode((m) => m === 'off' ? 'all' : m === 'all' ? 'one' : 'off');
+  const handleNext = (idx?: number) => {
+    const nextIdx = ((idx ?? currentIndex) + 1) % tracks.length;
+    if (tracks[nextIdx]) handleSelectTrack(tracks[nextIdx], nextIdx);
   };
 
-  // ── Auth 배너 (홈 화면 상단에 오버레이) ────────────────────
-  const AuthBanner = () => (
-    <View style={styles.authBanner}>
-      {user ? (
-        <View style={styles.authRow}>
-          {user.photoURL ? (
-            <Image source={{ uri: user.photoURL }} style={styles.authAvatar} />
-          ) : (
-            <View style={styles.authAvatarPlaceholder}>
-              <Text style={styles.authAvatarText}>{user.displayName?.[0] ?? '?'}</Text>
-            </View>
-          )}
-          <Text style={styles.authName} numberOfLines={1}>{user.displayName}</Text>
-          <View style={styles.syncDot} />
-          <Text style={styles.syncLabel}>실시간 동기화 중</Text>
-          <TouchableOpacity onPress={handleLogout} style={styles.authBtn}>
-            <Text style={styles.authBtnText}>로그아웃</Text>
-          </TouchableOpacity>
+  const handlePrev = () => {
+    const prevIdx = (currentIndex - 1 + tracks.length) % tracks.length;
+    if (tracks[prevIdx]) handleSelectTrack(tracks[prevIdx], prevIdx);
+  };
+
+  const handlePlayPause = async () => {
+    if (!playerRef.current) return;
+    try {
+      if (isPlaying) {
+        await playerRef.current.pauseAsync();
+        setIsPlaying(false);
+      } else {
+        await playerRef.current.playAsync();
+        setIsPlaying(true);
+      }
+    } catch (error) {
+      console.error('Error toggling playback:', error);
+    }
+  };
+
+  if (screen === 'login') return <LoginScreen />;
+
+  if (isLoading && !token) {
+    return (
+      <SafeAreaProvider>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+          <Ionicons name="musical-note" size={48} color={colors.primary} />
+          <Text style={{ color: colors.text, marginTop: 16, fontSize: 16 }}>앱 초기화 중...</Text>
         </View>
-      ) : (
-        <TouchableOpacity
-          style={styles.googleBtn}
-          onPress={handleGoogleLogin}
-          disabled={authLoading}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.googleBtnIcon}>G</Text>
-          <Text style={styles.googleBtnText}>
-            {authLoading ? '로그인 중...' : 'Google로 로그인하면 모든 기기 동기화'}
-          </Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
-
-  if (screen === 'vocab') return (
-    <SafeAreaProvider>
-      <VocabListScreen onBack={() => setScreen('home')} uid={user?.uid ?? null} />
-    </SafeAreaProvider>
-  );
+      </SafeAreaProvider>
+    );
+  }
 
   if (screen === 'player' && currentTrack) {
     return (
       <SafeAreaProvider>
+        <TouchableOpacity style={styles.backButton} onPress={() => setScreen('home')}>
+          <Ionicons name="chevron-down" size={28} color={colors.text} />
+        </TouchableOpacity>
         <PlayerScreen
           track={currentTrack}
           lyrics={lyrics}
           isPlaying={isPlaying}
           currentMs={currentMs}
-          durationMs={durationMs}
-          lyricsOffset={lyricsOffset}
-          shuffleMode={shuffleMode}
-          repeatMode={repeatMode}
-          isLiked={likedTracks.has(currentTrack.id)}
-          onLyricsOffsetChange={setLyricsOffset}
           onPlayPause={handlePlayPause}
-          onNext={handleNext}
+          onNext={() => handleNext()}
           onPrev={handlePrev}
-          onSeek={(ms) => { setCurrentMs(ms); ytSeek(ms); }}
-          onToggleShuffle={() => setShuffleMode((s) => !s)}
-          onToggleRepeat={handleToggleRepeat}
-          onToggleLike={() => handleToggleLike(currentTrack.id)}
-          onBack={() => setScreen('home')}
-          backListName={homeListQuery || null}
+          onSeek={async (ms) => {
+            setCurrentMs(ms);
+            if (playerRef.current) {
+              try {
+                await playerRef.current.setPositionAsync(ms);
+              } catch (error) {
+                console.error('Error seeking:', error);
+              }
+            }
+          }}
         />
       </SafeAreaProvider>
     );
@@ -382,87 +216,26 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <View style={styles.container}>
-        <AuthBanner />
-        <HomeScreen
-          tracks={tracks}
-          currentTrack={currentTrack}
-          isPlaying={isPlaying}
-          currentMs={currentMs}
-          durationMs={durationMs}
-          likedTrackIds={likedTracks}
-          onSelectTrack={(track, queue) => {
-            const q = queue ?? tracks;
-            queueRef.current = q;
-            const idx = q.findIndex((t) => t.id === track.id);
-            playTrack(track, Math.max(0, idx));
-          }}
-          onAutoPlay={(track, queue) => {
-            queueRef.current = queue;
-            const idx = queue.findIndex((t) => t.id === track.id);
-            playTrack(track, Math.max(0, idx), false);
-          }}
-          savedListQuery={homeListQuery}
-          savedListTracks={homeListTracks}
-          onListChange={(q, t) => { setHomeListQuery(q); setHomeListTracks(t); }}
-          onOpenPlayer={() => setScreen('player')}
-          onVocabPress={() => setScreen('vocab')}
-          onPlayPause={handlePlayPause}
-          onNext={handleNext}
-          loadError={loadError}
-        />
-      </View>
+      <HomeScreen
+        tracks={tracks}
+        currentTrack={currentTrack}
+        isPlaying={isPlaying}
+        isLoading={isLoading}
+        onSelectTrack={(track) => handleSelectTrack(track, tracks.indexOf(track))}
+      />
     </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0f' },
-
-  // ── Auth 배너 ──
-  authBanner: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  authRow: {
-    flexDirection: 'row',
+  backButton: {
+    position: 'absolute',
+    top: 56,
+    left: 20,
+    zIndex: 100,
+    width: 40,
+    height: 40,
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
   },
-  authAvatar: { width: 28, height: 28, borderRadius: 14 },
-  authAvatarPlaceholder: {
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: '#FC3C44', alignItems: 'center', justifyContent: 'center',
-  },
-  authAvatarText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  authName: { flex: 1, fontSize: 13, color: 'rgba(255,255,255,0.7)', fontWeight: '500' },
-  syncDot: {
-    width: 6, height: 6, borderRadius: 3, backgroundColor: '#30D158',
-  },
-  syncLabel: { fontSize: 12, color: '#30D158', fontWeight: '600' },
-  authBtn: {
-    paddingHorizontal: 12, paddingVertical: 5,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
-  },
-  authBtnText: { fontSize: 12, color: 'rgba(255,255,255,0.6)' },
-
-  // ── Google 로그인 버튼 ──
-  googleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    borderRadius: 12,
-    paddingHorizontal: 14, paddingVertical: 8,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
-  },
-  googleBtnIcon: {
-    fontSize: 15, fontWeight: '900', color: '#4285F4',
-    width: 22, textAlign: 'center',
-  },
-  googleBtnText: { fontSize: 13, color: 'rgba(255,255,255,0.65)', flex: 1 },
 });
