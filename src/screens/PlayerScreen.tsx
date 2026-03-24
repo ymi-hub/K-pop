@@ -221,9 +221,6 @@ export default function PlayerScreen({
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={() => setShowLyrics(false)} style={styles.closeBadge}>
-              <Text style={styles.closeBadgeText}>닫기</Text>
-            </TouchableOpacity>
           </View>
 
           <View style={styles.lyricsArea}>
