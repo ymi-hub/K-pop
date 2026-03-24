@@ -310,9 +310,9 @@ const styles = StyleSheet.create({
 
   /* ── Album art ── */
   albumSection: {
+    flex: 1,                        // 남은 공간 채움 → controlsArea가 화면 밖으로 밀리지 않음
     alignItems: 'center', justifyContent: 'center',
     paddingHorizontal: 36,
-    paddingVertical: 16,
   },
   albumShadow: {
     shadowColor: '#000',
