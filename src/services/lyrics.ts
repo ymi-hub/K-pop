@@ -1,4 +1,4 @@
-import { LyricLine, VocabEntry } from '../types';
+import { LyricLine, VocabEntry, Track } from '../types';
 
 // lrclib.net - 완전 무료, API 키 불필요, 타임스탬프 포함 가사 제공
 const LRCLIB_BASE = 'https://lrclib.net/api';
@@ -106,6 +106,50 @@ function parsePlainLyrics(raw: string): LyricLine[] {
         endMs: i * 4000 + Math.round(((wi + 1) / arr.length) * 4000),
       })),
     }));
+}
+
+// ── 가사 존재 여부 배치 확인 ──────────────────────────────────
+const lyricsExistCache = new Map<string, boolean>();
+
+async function checkLyricsExist(track: Track): Promise<boolean> {
+  const key = `${track.name.toLowerCase()}||${track.artists[0]?.toLowerCase()}`;
+  if (lyricsExistCache.has(key)) return lyricsExistCache.get(key)!;
+  try {
+    const url = `${LRCLIB_BASE}/get?track_name=${encodeURIComponent(track.name)}&artist_name=${encodeURIComponent(track.artists[0] ?? '')}&duration=${Math.round(track.durationMs / 1000)}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) {
+      // duration 없이 검색 재시도
+      const url2 = `${LRCLIB_BASE}/search?track_name=${encodeURIComponent(track.name)}&artist_name=${encodeURIComponent(track.artists[0] ?? '')}`;
+      const res2 = await fetch(url2, { signal: AbortSignal.timeout(3000) });
+      const data2 = await res2.json();
+      const found = Array.isArray(data2) && data2.some((d: any) => d?.syncedLyrics || d?.plainLyrics);
+      lyricsExistCache.set(key, found);
+      return found;
+    }
+    const data = await res.json();
+    const found = !!(data?.syncedLyrics || data?.plainLyrics);
+    lyricsExistCache.set(key, found);
+    return found;
+  } catch {
+    lyricsExistCache.set(key, false);
+    return false;
+  }
+}
+
+// 가사 있는 트랙만 필터 (병렬 처리, onProgress 콜백으로 진행 상황 보고)
+export async function filterTracksWithLyrics(
+  tracks: Track[],
+  onProgress?: (done: number, total: number) => void
+): Promise<Track[]> {
+  const BATCH = 10; // 동시 요청 수 제한
+  const results: Track[] = [];
+  for (let i = 0; i < tracks.length; i += BATCH) {
+    const batch = tracks.slice(i, i + BATCH);
+    const checks = await Promise.all(batch.map((t) => checkLyricsExist(t)));
+    batch.forEach((t, j) => { if (checks[j]) results.push(t); });
+    onProgress?.(Math.min(i + BATCH, tracks.length), tracks.length);
+  }
+  return results;
 }
 
 // 번역 캐시

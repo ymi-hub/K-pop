@@ -21,6 +21,7 @@ import { colors, spacing, borderRadius } from '../theme';
 import { Track } from '../types';
 import MiniPlayer from '../components/MiniPlayer';
 import { searchTracks } from '../services/itunes';
+import { filterTracksWithLyrics } from '../services/lyrics';
 import {
   getPlaylists,
   savePlaylist,
@@ -69,6 +70,7 @@ export default function HomeScreen({
   const [searchedQuery, setSearchedQuery] = useState(savedListQuery);
   const [searchedTracks, setSearchedTracks] = useState<Track[]>(savedListTracks);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState('');
   const [expandedAlbums, setExpandedAlbums] = useState<Set<string>>(new Set());
   const [playlists, setPlaylists] = useState<Playlist[]>(() => getPlaylists());
 
@@ -116,11 +118,22 @@ export default function HomeScreen({
     const q = searchInput.trim();
     if (!q) { clearSearch(); return; }
     setIsSearchLoading(true);
+    setLoadingMsg('곡 검색 중...');
     setSearchedQuery(q);
     setExpandedAlbums(new Set());
+
+    // 1단계: iTunes API 검색
     const result = await searchTracks(q);
-    setSearchedTracks(result);
+
+    // 2단계: 가사 있는 곡만 필터
+    setLoadingMsg(`가사 확인 중... (0 / ${result.length})`);
+    const withLyrics = await filterTracksWithLyrics(result, (done, total) => {
+      setLoadingMsg(`가사 확인 중... (${done} / ${total})`);
+    });
+
+    setSearchedTracks(withLyrics);
     setIsSearchLoading(false);
+    setLoadingMsg('');
   };
 
   const clearSearch = () => {
@@ -381,7 +394,7 @@ export default function HomeScreen({
       {isSearchLoading ? (
         <View style={styles.empty}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.emptyText}>검색 중...</Text>
+          <Text style={styles.emptyText}>{loadingMsg || '검색 중...'}</Text>
         </View>
       ) : isSearchMode ? (
         /* ── 검색 모드: 전체 트랙 리스트 ── */
