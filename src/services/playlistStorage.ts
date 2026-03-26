@@ -1,54 +1,73 @@
 import { Track } from '../types';
 
-export interface Playlist {
+const KEY = 'kpop_my_playlist';
+const LYRICS_KEY = 'kpop_cached_lyrics';
+
+export interface PlaylistItem {
   id: string;
   name: string;
-  tracks: Track[];
-  createdAt: number;
+  artists: string[];
+  album: string;
+  albumArt: string;
+  durationMs: number;
+  previewUrl: null;
+  spotifyUri: string;
+  videoId?: string; // YouTube video ID (add 시점에 캐싱)
 }
 
-const KEY = 'kpop_playlists';
-
-// 트랙 내부 중복 제거 (id 기준)
-function dedupTracks(tracks: Track[]): Track[] {
-  const seen = new Set<string>();
-  return tracks.filter((t) => {
-    if (seen.has(t.id)) return false;
-    seen.add(t.id);
-    return true;
-  });
+export function loadPlaylist(): PlaylistItem[] {
+  try {
+    const raw = localStorage.getItem(KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
 }
 
-export function getPlaylists(): Playlist[] {
-  try { return JSON.parse(localStorage.getItem(KEY) ?? '[]'); }
-  catch { return []; }
+export function savePlaylist(items: PlaylistItem[]): void {
+  try { localStorage.setItem(KEY, JSON.stringify(items)); } catch {}
 }
 
-export function savePlaylist(pl: Playlist): void {
-  const deduped = { ...pl, tracks: dedupTracks(pl.tracks) };
-  // id 중복 + 이름 중복 모두 제거 → 같은 이름은 1개만 유지
-  const list = getPlaylists().filter(
-    (p) => p.id !== deduped.id && p.name.toLowerCase() !== deduped.name.toLowerCase()
-  );
-  list.unshift(deduped);
-  localStorage.setItem(KEY, JSON.stringify(list.slice(0, 20)));
+export function addToPlaylist(track: Track, videoId?: string): boolean {
+  const list = loadPlaylist();
+  if (list.find(t => t.id === track.id)) return false;
+  const item: PlaylistItem = {
+    id: track.id,
+    name: track.name,
+    artists: track.artists,
+    album: track.album,
+    albumArt: track.albumArt,
+    durationMs: track.durationMs,
+    previewUrl: null,
+    spotifyUri: '',
+    videoId: videoId || undefined,
+  };
+  list.unshift(item);
+  savePlaylist(list);
+  return true;
 }
 
-export function deletePlaylist(id: string): void {
-  localStorage.setItem(KEY, JSON.stringify(getPlaylists().filter((p) => p.id !== id)));
+export function removeFromPlaylist(trackId: string): void {
+  const list = loadPlaylist().filter(t => t.id !== trackId);
+  savePlaylist(list);
 }
 
-// 중복 플레이리스트 정리 (앱 시작 시 호출)
-export function cleanupPlaylists(): void {
-  const list = getPlaylists();
-  const seen = new Set<string>();
-  const cleaned = list.filter((p) => {
-    const key = p.name.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  if (cleaned.length !== list.length) {
-    localStorage.setItem(KEY, JSON.stringify(cleaned));
-  }
+export function isInPlaylist(trackId: string): boolean {
+  return loadPlaylist().some(t => t.id === trackId);
+}
+
+// 가사 캐시
+export function cacheLyrics(trackId: string, lyrics: string): void {
+  try {
+    const raw = localStorage.getItem(LYRICS_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    map[trackId] = lyrics;
+    localStorage.setItem(LYRICS_KEY, JSON.stringify(map));
+  } catch {}
+}
+
+export function getCachedLyrics(trackId: string): string | null {
+  try {
+    const raw = localStorage.getItem(LYRICS_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw)[trackId] ?? null;
+  } catch { return null; }
 }

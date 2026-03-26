@@ -1,17 +1,61 @@
 const YT_API_KEY = process.env.EXPO_PUBLIC_YOUTUBE_API_KEY ?? '';
 const SEARCH_URL = 'https://www.googleapis.com/youtube/v3/search';
 
-// 곡명 + 아티스트로 YouTube 비디오 ID 검색
-// "official audio" 우선 → 가사 타임스탬프와 싱크가 잘 맞는 오디오 전용 버전 선택
-export async function searchYouTube(trackName: string, artist: string): Promise<string | null> {
+export type YTResult = {
+  videoId: string;
+  thumbnail: string;
+};
+
+export type YTSearchItem = {
+  videoId: string;
+  title: string;
+  channelTitle: string;
+  thumbnail: string;
+};
+
+// 자유 검색어로 YouTube 음악 영상 여러 개 반환
+export async function searchYouTubeMulti(query: string, maxResults = 10): Promise<YTSearchItem[]> {
+  if (!YT_API_KEY || !query.trim()) return [];
+  try {
+    const params = new URLSearchParams({
+      part: 'id,snippet',
+      type: 'video',
+      q: query,
+      key: YT_API_KEY,
+      maxResults: String(maxResults),
+      videoCategoryId: '10',
+      videoEmbeddable: 'true',
+    });
+    const res = await fetch(`${SEARCH_URL}?${params}`);
+    const data = await res.json();
+    if (data.error) { console.warn('YouTube search error:', data.error.message); return []; }
+    return ((data.items ?? []) as any[])
+      .map(item => ({
+        videoId: item.id?.videoId ?? '',
+        title: item.snippet?.title ?? '',
+        channelTitle: item.snippet?.channelTitle ?? '',
+        thumbnail:
+          item.snippet?.thumbnails?.high?.url ??
+          item.snippet?.thumbnails?.medium?.url ??
+          `https://i.ytimg.com/vi/${item.id?.videoId}/hqdefault.jpg`,
+      }))
+      .filter(i => i.videoId);
+  } catch {
+    return [];
+  }
+}
+
+// 곡명 + 아티스트로 YouTube 임베딩 가능한 영상 검색
+// official audio / topic 채널 우선 → 가사 싱크 정확
+export async function searchYouTube(
+  trackName: string,
+  artist: string
+): Promise<YTResult | null> {
   if (!YT_API_KEY) {
     console.warn('YouTube API key not configured');
     return null;
   }
-  // 1순위: official audio (MV보다 전주가 짧아 가사 싱크 정확)
-  // 2순위: topic 채널 (YouTube Music 자동 업로드, 원본과 동일)
-  // topic 채널 = YouTube Music 자동 업로드 (Apple Music·iTunes와 동일한 마스터)
-  // official audio보다 가사 싱크 정확
+
   const queries = [
     `${trackName} ${artist} topic`,
     `${trackName} ${artist} official audio`,
@@ -21,12 +65,13 @@ export async function searchYouTube(trackName: string, artist: string): Promise<
   for (const query of queries) {
     try {
       const params = new URLSearchParams({
-        part: 'id',
+        part: 'id,snippet',
         type: 'video',
         q: query,
         key: YT_API_KEY,
-        maxResults: '1',
+        maxResults: '3',
         videoCategoryId: '10',
+        videoEmbeddable: 'true',
       });
       const res = await fetch(`${SEARCH_URL}?${params}`);
       const data = await res.json();
@@ -34,8 +79,15 @@ export async function searchYouTube(trackName: string, artist: string): Promise<
         console.error('YouTube API error:', data.error.message);
         return null;
       }
-      const videoId = data.items?.[0]?.id?.videoId;
-      if (videoId) return videoId;
+      const item = data.items?.[0];
+      const videoId = item?.id?.videoId;
+      if (videoId) {
+        const thumb =
+          item?.snippet?.thumbnails?.high?.url ??
+          item?.snippet?.thumbnails?.medium?.url ??
+          `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+        return { videoId, thumbnail: thumb };
+      }
     } catch (e) {
       console.error('YouTube search failed:', e);
     }

@@ -1,0 +1,120 @@
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  SafeAreaView,
+  StatusBar,
+  Switch,
+} from 'react-native';
+import { colors, spacing, borderRadius } from '../theme';
+
+interface Props {
+  onBack: () => void;
+}
+
+export default function SettingsScreen({ onBack }: Props) {
+  const [darkMode, setDarkMode] = useState(true);
+  const [notifications, setNotifications] = useState(false);
+  const [autoPlay, setAutoPlay] = useState(true);
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" />
+
+      <View style={styles.header}>
+        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
+          <Text style={styles.backIcon}>‹</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>설정</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
+      <View style={styles.content}>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>외관</Text>
+          <View style={styles.setting}>
+            <Text style={styles.settingLabel}>다크 모드</Text>
+            <Switch
+              value={darkMode}
+              onValueChange={setDarkMode}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor={darkMode ? '#fff' : colors.textTertiary}
+            />
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>재생</Text>
+          <View style={styles.setting}>
+            <Text style={styles.settingLabel}>자동 재생</Text>
+            <Switch
+              value={autoPlay}
+              onValueChange={setAutoPlay}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor={autoPlay ? '#fff' : colors.textTertiary}
+            />
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>알림</Text>
+          <View style={styles.setting}>
+            <Text style={styles.settingLabel}>푸시 알림</Text>
+            <Switch
+              value={notifications}
+              onValueChange={setNotifications}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor={notifications ? '#fff' : colors.textTertiary}
+            />
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>앱 정보</Text>
+          <View style={styles.info}>
+            <Text style={styles.infoText}>버전: 1.0.0</Text>
+            <Text style={styles.infoText}>K-pop English</Text>
+            <Text style={styles.infoText}>BTS 가사로 배우는 영어</Text>
+          </View>
+        </View>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  backBtn: { width: 40, alignItems: 'center' },
+  backIcon: { fontSize: 36, color: colors.text, lineHeight: 40 },
+  title: { fontSize: 24, fontWeight: '800', color: colors.text },
+  content: { flex: 1, padding: spacing.md },
+  section: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  sectionTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginBottom: spacing.md },
+  setting: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
+  settingLabel: { fontSize: 16, color: colors.text },
+  info: { gap: spacing.sm },
+  infoText: { fontSize: 14, color: colors.textSecondary },
+});

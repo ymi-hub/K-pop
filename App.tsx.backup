@@ -1,0 +1,314 @@
+import React, { useState, useEffect, useRef, Component } from 'react';
+import { View, Text, StyleSheet, Platform, ScrollView } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+
+// 웹에서 SafeAreaProvider가 첫 렌더 시 children을 비우지 않도록 초기값 고정
+const SAFE_AREA_INITIAL = {
+  frame: { x: 0, y: 0, width: 0, height: 0 },
+  insets: { top: 0, bottom: 0, left: 0, right: 0 },
+};
+import HomeScreen from './src/screens/HomeScreen';
+import PlayerScreen from './src/screens/PlayerScreen';
+import MiniPlayer from './src/components/MiniPlayer';
+import { Track, LyricLine } from './src/types';
+import { colors } from './src/theme';
+import { getLyrics } from './src/services/lyrics';
+import {
+  initYouTubeAPI, createYTPlayer, ytLoadVideo,
+  ytPlay, ytPause, ytSeek, ytGetCurrentTime, ytGetDuration, YT_STATE,
+} from './src/services/youtubePlayer';
+import { searchYouTube } from './src/services/youtubeSearch';
+import { getBTSTracks, ytCache } from './src/data/btsSongs';
+
+type Screen = 'home' | 'player';
+type RepeatMode = 'off' | 'one' | 'all';
+
+function shuffleArray<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// ── 에러 바운더리 ─────────────────────────────────────────────
+class ErrorBoundary extends Component<
+  { children: React.ReactNode },
+  { error: string | null }
+> {
+  state = { error: null };
+  static getDerivedStateFromError(e: any) {
+    return { error: String(e?.message ?? e) };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <ScrollView style={{ flex: 1, backgroundColor: '#1a1a2e', padding: 24 }}>
+          <Text style={{ color: '#FC3C44', fontSize: 18, fontWeight: '700', marginBottom: 12, marginTop: 60 }}>
+            앱 오류 발생
+          </Text>
+          <Text style={{ color: '#fff', fontSize: 13, fontFamily: 'monospace' }}>
+            {this.state.error}
+          </Text>
+        </ScrollView>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ── 메인 앱 ──────────────────────────────────────────────────
+export default function App() {
+  const [screen, setScreen] = useState<Screen>('home');
+  const [tracks, setTracks] = useState<Track[]>(() => getBTSTracks());
+  const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [playOrder, setPlayOrder] = useState<number[]>(() =>
+    getBTSTracks().map((_, i) => i)
+  );
+
+  const [lyrics, setLyrics] = useState<LyricLine[]>([]);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentMs, setCurrentMs] = useState(0);
+  const [durationMs, setDurationMs] = useState(0);
+  const [lyricsOffset, setLyricsOffset] = useState(0);
+
+  const [shuffleMode, setShuffleMode] = useState(false);
+  const [repeatMode, setRepeatMode] = useState<RepeatMode>('off');
+  const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
+  const [ytReady, setYtReady] = useState(false);
+
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 최신 상태를 ref에 유지 (stale closure 방지)
+  const stateRef = useRef({ currentIndex, playOrder, tracks, repeatMode });
+  useEffect(() => {
+    stateRef.current = { currentIndex, playOrder, tracks, repeatMode };
+  });
+
+  // ── YouTube IFrame 초기화 (웹 전용) ─────────────────────────
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    initYouTubeAPI()
+      .then(() =>
+        createYTPlayer((state) => {
+          if (state === YT_STATE.PLAYING) {
+            setIsPlaying(true);
+            const dur = ytGetDuration();
+            if (dur > 0) setDurationMs(dur);
+          } else if (state === YT_STATE.PAUSED) {
+            setIsPlaying(false);
+          } else if (state === YT_STATE.ENDED) {
+            handleEndedRef.current();
+          }
+        })
+      )
+      .then(() => setYtReady(true))
+      .catch((e) => console.error('YouTube 초기화 오류:', e));
+  }, []);
+
+  // 곡 끝났을 때 처리
+  const handleEndedRef = useRef(() => {});
+  useEffect(() => {
+    handleEndedRef.current = () => {
+      const { currentIndex: idx, playOrder, repeatMode } = stateRef.current;
+      if (repeatMode === 'one') {
+        ytSeek(0);
+        ytPlay();
+        return;
+      }
+      const orderIdx = playOrder.indexOf(idx);
+      const nextOrderIdx = orderIdx + 1;
+      if (nextOrderIdx >= playOrder.length) {
+        if (repeatMode === 'all') selectTrackByIndex(playOrder[0]);
+        else setIsPlaying(false);
+        return;
+      }
+      selectTrackByIndex(playOrder[nextOrderIdx]);
+    };
+  });
+
+  // currentMs 폴링
+  useEffect(() => {
+    if (isPlaying) {
+      timerRef.current = setInterval(() => {
+        setCurrentMs(ytGetCurrentTime());
+        const dur = ytGetDuration();
+        if (dur > 0) setDurationMs(dur);
+      }, 500);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [isPlaying]);
+
+  // ── 트랙 선택 → YouTube 검색 + 전체 재생 ──────────────────
+  const selectTrackByIndex = async (trackIdx: number) => {
+    const track = stateRef.current.tracks[trackIdx];
+    if (!track) return;
+
+    setCurrentTrack(track);
+    setCurrentIndex(trackIdx);
+    setScreen('player');
+    setIsPlaying(false);
+    setCurrentMs(0);
+    setDurationMs(track.durationMs);
+    setLyricsOffset(0);
+
+    // 가사 로드 (비동기)
+    getLyrics(track.name, track.artists[0])
+      .then(setLyrics)
+      .catch(() => setLyrics([]));
+
+    if (Platform.OS !== 'web' || !ytReady) return;
+
+    // 캐시에 있으면 즉시 재생
+    const cached = ytCache.get(track.id);
+    if (cached) {
+      // albumArt 업데이트
+      updateTrackArt(trackIdx, cached.thumb);
+      ytLoadVideo(cached.videoId);
+      return;
+    }
+
+    // YouTube 검색
+    const result = await searchYouTube(track.name, track.artists[0]);
+    if (result) {
+      ytCache.set(track.id, result);
+      updateTrackArt(trackIdx, result.thumbnail);
+      ytLoadVideo(result.videoId);
+    } else {
+      console.warn(`YouTube 영상 없음: ${track.name}`);
+    }
+  };
+
+  // albumArt를 YouTube 썸네일로 업데이트
+  const updateTrackArt = (idx: number, thumb: string) => {
+    setTracks((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], albumArt: thumb };
+      return next;
+    });
+    setCurrentTrack((prev) =>
+      prev ? { ...prev, albumArt: thumb } : prev
+    );
+  };
+
+  const handleSelectTrack = (track: Track) => {
+    const idx = tracks.findIndex((t) => t.id === track.id);
+    if (idx !== -1) selectTrackByIndex(idx);
+  };
+
+  // ── 재생 컨트롤 ────────────────────────────────────────────
+  const handlePlayPause = () => {
+    if (isPlaying) { ytPause(); setIsPlaying(false); }
+    else            { ytPlay();  setIsPlaying(true);  }
+  };
+
+  const handleNext = () => {
+    const { currentIndex: idx, playOrder, repeatMode } = stateRef.current;
+    if (repeatMode === 'one') { ytSeek(0); ytPlay(); return; }
+    const nextIdx = playOrder[(playOrder.indexOf(idx) + 1) % playOrder.length];
+    selectTrackByIndex(nextIdx);
+  };
+
+  const handlePrev = () => {
+    if (currentMs > 3000) { ytSeek(0); setCurrentMs(0); return; }
+    const { currentIndex: idx, playOrder } = stateRef.current;
+    const prevIdx = playOrder[(playOrder.indexOf(idx) - 1 + playOrder.length) % playOrder.length];
+    selectTrackByIndex(prevIdx);
+  };
+
+  const handleSeek = (ms: number) => {
+    ytSeek(ms);
+    setCurrentMs(ms);
+  };
+
+  // ── 셔플 ───────────────────────────────────────────────────
+  const handleToggleShuffle = () => {
+    setShuffleMode((prev) => {
+      const next = !prev;
+      if (next) {
+        const rest = tracks.map((_, i) => i).filter((i) => i !== currentIndex);
+        setPlayOrder([currentIndex, ...shuffleArray(rest)]);
+      } else {
+        setPlayOrder(tracks.map((_, i) => i));
+      }
+      return next;
+    });
+  };
+
+  // ── 반복 ───────────────────────────────────────────────────
+  const handleToggleRepeat = () => {
+    setRepeatMode((prev) =>
+      prev === 'off' ? 'all' : prev === 'all' ? 'one' : 'off'
+    );
+  };
+
+  // ── 좋아요 ─────────────────────────────────────────────────
+  const handleToggleLike = () => {
+    if (!currentTrack) return;
+    setLikedIds((prev) => {
+      const next = new Set(prev);
+      next.has(currentTrack.id) ? next.delete(currentTrack.id) : next.add(currentTrack.id);
+      return next;
+    });
+  };
+
+  // ── 렌더링 ─────────────────────────────────────────────────
+  if (screen === 'player' && currentTrack) {
+    return (
+      <ErrorBoundary>
+        <SafeAreaProvider initialMetrics={SAFE_AREA_INITIAL}>
+          <PlayerScreen
+            track={currentTrack}
+            lyrics={lyrics}
+            isPlaying={isPlaying}
+            currentMs={currentMs}
+            durationMs={durationMs}
+            lyricsOffset={lyricsOffset}
+            shuffleMode={shuffleMode}
+            repeatMode={repeatMode}
+            isLiked={likedIds.has(currentTrack.id)}
+            onLyricsOffsetChange={setLyricsOffset}
+            onPlayPause={handlePlayPause}
+            onNext={handleNext}
+            onPrev={handlePrev}
+            onSeek={handleSeek}
+            onToggleShuffle={handleToggleShuffle}
+            onToggleRepeat={handleToggleRepeat}
+            onToggleLike={handleToggleLike}
+            onBack={() => setScreen('home')}
+          />
+        </SafeAreaProvider>
+      </ErrorBoundary>
+    );
+  }
+
+  return (
+    <ErrorBoundary>
+      <SafeAreaProvider initialMetrics={SAFE_AREA_INITIAL}>
+        <HomeScreen
+          tracks={tracks}
+          currentTrack={currentTrack}
+          isPlaying={isPlaying}
+          onSelectTrack={handleSelectTrack}
+        />
+        {currentTrack && (
+          <MiniPlayer
+            track={currentTrack}
+            isPlaying={isPlaying}
+            currentMs={currentMs}
+            durationMs={durationMs}
+            onPress={() => setScreen('player')}
+            onPlayPause={handlePlayPause}
+            onNext={handleNext}
+          />
+        )}
+      </SafeAreaProvider>
+    </ErrorBoundary>
+  );
+}
+
+const styles = StyleSheet.create({});

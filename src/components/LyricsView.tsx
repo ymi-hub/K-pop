@@ -20,14 +20,19 @@ interface Props {
   currentLineIndex: number;
   currentMs: number;
   onWordPress: (vocab: VocabEntry) => void;
+  onLineSyncPress?: (lineStartMs: number) => void;
 }
 
-export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWordPress }: Props) {
+export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWordPress, onLineSyncPress }: Props) {
   const scrollRef = useRef<ScrollView>(null);
   const [translatedIdx, setTranslatedIdx] = useState<number | null>(null);
   const [translatedText, setTranslatedText] = useState('');
   const [translating, setTranslating] = useState(false);
-  const lastTapRef = useRef<{ idx: number; time: number } | null>(null);
+  const pendingRef = useRef<{
+    idx: number;
+    line: LyricLine;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
 
   useEffect(() => {
     if (currentLineIndex > 0) {
@@ -36,25 +41,44 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
     }
   }, [currentLineIndex]);
 
-  const handleLineTap = async (line: LyricLine, idx: number) => {
-    const now = Date.now();
-    const last = lastTapRef.current;
-    // 단일 탭: 다른 라인의 번역이 열려있으면 닫기
-    if (!last || last.idx !== idx || now - last.time >= 400) {
-      lastTapRef.current = { idx, time: now };
-      if (translatedIdx !== null && translatedIdx !== idx) {
+  const handleLineTap = (line: LyricLine, idx: number) => {
+    // 같은 줄을 두 번 탭 → 더블 탭 (번역)
+    if (pendingRef.current?.idx === idx) {
+      clearTimeout(pendingRef.current.timer);
+      pendingRef.current = null;
+      if (translatedIdx === idx) {
         setTranslatedIdx(null); setTranslatedText('');
+      } else {
+        setTranslatedIdx(idx); setTranslatedText(''); setTranslating(true);
+        translateToKorean(line.text).then(r => {
+          setTranslatedText(r); setTranslating(false);
+        });
       }
       return;
     }
-    // 더블 탭
-    lastTapRef.current = null;
-    if (translatedIdx === idx) {
-      setTranslatedIdx(null); setTranslatedText(''); return;
+
+    // 다른 줄 탭 시 기존 대기 취소
+    if (pendingRef.current) {
+      clearTimeout(pendingRef.current.timer);
+      pendingRef.current = null;
     }
-    setTranslatedIdx(idx); setTranslatedText(''); setTranslating(true);
-    const result = await translateToKorean(line.text);
-    setTranslatedText(result); setTranslating(false);
+
+    // 280ms 대기 후 단일 탭 처리
+    const timer = setTimeout(() => {
+      pendingRef.current = null;
+      if (translatedIdx !== null) { setTranslatedIdx(null); setTranslatedText(''); }
+      onLineSyncPress?.(line.startMs);
+    }, 280);
+
+    pendingRef.current = { idx, line, timer };
+  };
+
+  const closeTranslation = () => {
+    if (pendingRef.current) {
+      clearTimeout(pendingRef.current.timer);
+      pendingRef.current = null;
+    }
+    setTranslatedIdx(null); setTranslatedText('');
   };
 
   if (lyrics.length === 0) {
@@ -65,75 +89,82 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
     );
   }
 
-  const closeTranslation = () => {
-    if (translatedIdx !== null) { setTranslatedIdx(null); setTranslatedText(''); }
-  };
+  const translatedLine = translatedIdx !== null ? lyrics[translatedIdx] : null;
+  const englishWords = translatedLine
+    ? translatedLine.words.map(w => w.text.replace(/[^a-zA-Z]/g, '')).filter(w => w.length >= 2)
+    : [];
 
   return (
-    <ScrollView
-      ref={scrollRef}
-      style={styles.container}
-      showsVerticalScrollIndicator={false}
-      contentContainerStyle={styles.content}
-    >
-      <TouchableWithoutFeedback onPress={closeTranslation}>
-        <View style={{ height: height * 0.08 }} />
-      </TouchableWithoutFeedback>
+    <View style={{ flex: 1 }}>
+      <ScrollView
+        ref={scrollRef}
+        style={styles.container}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.content}
+      >
+        <TouchableWithoutFeedback onPress={closeTranslation}>
+          <View style={{ height: height * 0.08 }} />
+        </TouchableWithoutFeedback>
 
-      <Text style={styles.hint}>두 번 탭하면 번역 · 단어 탭하면 뜻</Text>
+        <Text style={styles.hint}>탭: 싱크 맞추기 · 두 번 탭: 번역 · 단어 탭: 뜻</Text>
 
-      {lyrics.map((line, lineIdx) => {
-        const isActive = lineIdx === currentLineIndex;
-        const isPast = lineIdx < currentLineIndex;
-        const isTranslated = translatedIdx === lineIdx;
+        {lyrics.map((line, lineIdx) => {
+          const isActive = lineIdx === currentLineIndex;
+          const isPast = lineIdx < currentLineIndex;
 
-        const englishWords = line.words
-          .map((w) => w.text.replace(/[^a-zA-Z]/g, ''))
-          .filter((w) => w.length >= 2);
+          return (
+            <View key={lineIdx} style={styles.lineBlock}>
+              <TouchableOpacity
+                style={[styles.lineWrapper, isActive && styles.lineWrapperActive]}
+                onPress={() => handleLineTap(line, lineIdx)}
+                activeOpacity={0.75}
+              >
+                {isActive ? (
+                  <Text style={styles.lineTextActive}>
+                    {line.words.map((word, wi) => {
+                      const pastWord = currentMs > word.endMs;
+                      const currentWord = currentMs >= word.startMs && currentMs <= word.endMs;
+                      return (
+                        <Text
+                          key={wi}
+                          style={[
+                            styles.wordBase,
+                            pastWord && styles.wordPast,
+                            currentWord && styles.wordCurrent,
+                            !pastWord && !currentWord && styles.wordFuture,
+                          ]}
+                        >
+                          {word.text}{wi < line.words.length - 1 ? ' ' : ''}
+                        </Text>
+                      );
+                    })}
+                  </Text>
+                ) : (
+                  <Text style={[styles.lineText, isPast && styles.lineTextPast]}>
+                    {line.text}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          );
+        })}
 
-        return (
-          <View key={lineIdx} style={styles.lineBlock}>
-            <TouchableOpacity
-              style={[styles.lineWrapper, isActive && styles.lineWrapperActive]}
-              onPress={() => handleLineTap(line, lineIdx)}
-              activeOpacity={0.75}
-            >
-              {isActive ? (
-                <Text style={styles.lineTextActive}>
-                  {line.words.map((word, wi) => {
-                    const pastWord = currentMs > word.endMs;
-                    const currentWord = currentMs >= word.startMs && currentMs <= word.endMs;
-                    return (
-                      <Text
-                        key={wi}
-                        style={[
-                          styles.wordBase,
-                          pastWord && styles.wordPast,
-                          currentWord && styles.wordCurrent,
-                          !pastWord && !currentWord && styles.wordFuture,
-                        ]}
-                      >
-                        {word.text}{wi < line.words.length - 1 ? ' ' : ''}
-                      </Text>
-                    );
-                  })}
-                </Text>
-              ) : (
-                <Text style={[styles.lineText, isPast && styles.lineTextPast]}>
-                  {line.text}
-                </Text>
-              )}
-            </TouchableOpacity>
+        <TouchableWithoutFeedback onPress={closeTranslation}>
+          <View style={{ height: height * 0.3 }} />
+        </TouchableWithoutFeedback>
+      </ScrollView>
 
-            {/* ── Duolingo-style translation card ── */}
-            {isTranslated && (
+      {/* ── 번역 오버레이 — 가사 영역 중앙에 고정 ── */}
+      {translatedIdx !== null && (
+        <TouchableWithoutFeedback onPress={closeTranslation}>
+          <View style={styles.overlayBackdrop}>
+            <TouchableWithoutFeedback>
               <View style={styles.translationCard}>
                 {translating ? (
                   <ActivityIndicator size="small" color={colors.primary} />
                 ) : (
                   <>
                     <Text style={styles.translationKorean}>{translatedText}</Text>
-
                     {englishWords.length > 0 && (
                       <View style={styles.chipRow}>
                         {englishWords.map((word, i) => (
@@ -151,18 +182,17 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
                         ))}
                       </View>
                     )}
+                    <TouchableOpacity onPress={closeTranslation} style={styles.closeBtn}>
+                      <Text style={styles.closeBtnText}>닫기</Text>
+                    </TouchableOpacity>
                   </>
                 )}
               </View>
-            )}
+            </TouchableWithoutFeedback>
           </View>
-        );
-      })}
-
-      <TouchableWithoutFeedback onPress={closeTranslation}>
-        <View style={{ height: height * 0.3 }} />
-      </TouchableWithoutFeedback>
-    </ScrollView>
+        </TouchableWithoutFeedback>
+      )}
+    </View>
   );
 }
 
@@ -208,26 +238,32 @@ const styles = StyleSheet.create({
   wordCurrent: { color: '#FFFFFF' },
   wordFuture: { color: 'rgba(255,255,255,0.28)' },
 
-  /* ── Translation card (Duolingo style) ── */
+  /* ── 번역 오버레이 ── */
+  overlayBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
   translationCard: {
-    marginTop: 6,
-    marginHorizontal: 4,
+    width: '100%',
     backgroundColor: '#1C1C1E',
     borderRadius: borderRadius.xl,
-    padding: spacing.md,
-    gap: 12,
+    padding: spacing.lg,
+    gap: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
   },
   translationKorean: {
     fontSize: 22,
     fontWeight: '700',
     color: '#FFFFFF',
-    lineHeight: 30,
+    lineHeight: 32,
     textAlign: 'center',
   },
 
-  /* word chips */
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -246,5 +282,18 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: colors.primary,
+  },
+
+  closeBtn: {
+    marginTop: 2,
+    paddingHorizontal: 24,
+    paddingVertical: 8,
+    borderRadius: borderRadius.full,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  closeBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.5)',
   },
 });

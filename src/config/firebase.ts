@@ -1,6 +1,6 @@
-import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
+import { getFirestore, Firestore } from 'firebase/firestore';
+import { getAuth, Auth, GoogleAuthProvider } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -12,9 +12,16 @@ const firebaseConfig = {
   measurementId: process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
-const app = initializeApp(firebaseConfig);
+let app: FirebaseApp | null = null;
+let db: Firestore | null = null;
+let auth: Auth | null = null;
 
-export const db = getFirestore(app);
-export const auth = getAuth(app);
+if (firebaseConfig.apiKey) {
+  app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+  db = getFirestore(app);
+  auth = getAuth(app);
+}
+
+export { db, auth };
 export const googleProvider = new GoogleAuthProvider();
 export default app;

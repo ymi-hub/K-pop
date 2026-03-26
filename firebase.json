@@ -9,6 +9,18 @@
       {
         "source": "/manifest.json",
         "headers": [{ "key": "Content-Type", "value": "application/manifest+json" }]
+      },
+      {
+        "source": "/index.html",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }]
+      },
+      {
+        "source": "/**/*.js",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }]
+      },
+      {
+        "source": "/**/*.css",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }]
       }
     ],
     "rewrites": [

@@ -1,24 +1,16 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Dimensions, Platform, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
-import { initiateSpotifyLogin } from '../services/spotifyAuth';
 import { colors, spacing, borderRadius } from '../theme';
+import Icon from '../components/Icon';
 
 const { height } = Dimensions.get('window');
 
-export default function LoginScreen() {
-  const handleLoginPress = () => {
-    if (Platform.OS !== 'web') {
-      Alert.alert(
-        '웹에서만 이용 가능',
-        'Spotify 로그인은 현재 웹 환경에서만 지원됩니다. 브라우저에서 접속해주세요.'
-      );
-      return;
-    }
-    initiateSpotifyLogin();
-  };
+interface Props {
+  onStart: () => void;
+}
 
+export default function LoginScreen({ onStart }: Props) {
   return (
     <LinearGradient
       colors={['#1a1a2e', '#16213e', '#0f3460', '#000000']}
@@ -27,7 +19,7 @@ export default function LoginScreen() {
       {/* 로고 영역 */}
       <View style={styles.logoArea}>
         <View style={styles.iconCircle}>
-          <Ionicons name="musical-notes" size={64} color={colors.primary} />
+          <Icon name="musical-notes" size={64} color={colors.primary} />
         </View>
         <Text style={styles.appName}>K-pop English</Text>
         <Text style={styles.tagline}>BTS 가사로 배우는 영어</Text>
@@ -36,26 +28,26 @@ export default function LoginScreen() {
       {/* 기능 소개 */}
       <View style={styles.features}>
         {[
-          { icon: 'musical-note', text: 'BTS 전체 곡 스트리밍' },
-          { icon: 'text', text: '실시간 가사 싱크' },
-          { icon: 'book', text: '가사 속 영어 단어 즉시 검색' },
+          { icon: 'musical-note' as const, text: 'BTS 전체 곡 스트리밍' },
+          { icon: 'lyrics' as const,       text: '실시간 가사 싱크' },
+          { icon: 'book' as const,          text: '가사 속 영어 단어 즉시 검색' },
         ].map((item, i) => (
           <View key={i} style={styles.featureRow}>
-            <Ionicons name={item.icon as any} size={20} color={colors.primary} />
+            <Icon name={item.icon} size={22} color={colors.primary} />
             <Text style={styles.featureText}>{item.text}</Text>
           </View>
         ))}
       </View>
 
-      {/* Spotify 로그인 버튼 */}
+      {/* 시작 버튼 */}
       <View style={styles.loginArea}>
-        <TouchableOpacity style={styles.spotifyBtn} onPress={handleLoginPress}>
-          <Ionicons name="logo-github" size={24} color="#000" />
-          <Text style={styles.spotifyBtnText}>Spotify로 시작하기</Text>
+        <TouchableOpacity style={styles.startBtn} onPress={onStart} activeOpacity={0.85}>
+          <Icon name="play" size={22} color="#000" />
+          <Text style={styles.startBtnText}>시작하기</Text>
         </TouchableOpacity>
         <Text style={styles.notice}>
-          Spotify 계정이 필요합니다{'\n'}
-          무료 계정은 30초 미리듣기만 제공됩니다
+          BTS 음악과 함께 영어를 배워보세요{'\n'}
+          가사 속 단어를 탭하면 뜻을 바로 확인할 수 있습니다
         </Text>
       </View>
     </LinearGradient>
@@ -118,21 +110,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
   },
-  spotifyBtn: {
+  startBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1DB954',
+    backgroundColor: colors.primary,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xl,
     borderRadius: borderRadius.full,
     gap: spacing.sm,
     width: '100%',
   },
-  spotifyBtnText: {
+  startBtnText: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#000',
+    color: '#fff',
   },
   notice: {
     fontSize: 12,

@@ -1,12 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, memo } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Dimensions,
-  StatusBar,
-  Animated,
+  View, Text, TouchableOpacity, StyleSheet,
+  Dimensions, Animated, PanResponder, StatusBar,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { BlurView } from 'expo-blur';
@@ -15,10 +10,12 @@ import { colors, spacing, borderRadius } from '../theme';
 import { Track, LyricLine, VocabEntry } from '../types';
 import VocabCard from '../components/VocabCard';
 import LyricsView from '../components/LyricsView';
+import Icon from '../components/Icon';
+import { ytSetVolume, ytGetVolume } from '../services/youtubePlayer';
 
-const { width, height } = Dimensions.get('window');
-const ALBUM_ART_SIZE = Math.min(width - 72, height * 0.38);
-const OFFSET_STEP = 500;
+const { width, height: SCREEN_H } = Dimensions.get('window');
+const ART_SIZE = Math.min(width - 56, SCREEN_H * 0.38);
+const OFFSET_STEP = 1000;
 
 type RepeatMode = 'off' | 'one' | 'all';
 
@@ -32,7 +29,7 @@ interface Props {
   shuffleMode: boolean;
   repeatMode: RepeatMode;
   isLiked: boolean;
-  onLyricsOffsetChange: (offset: number) => void;
+  onLyricsOffsetChange: (v: number) => void;
   onPlayPause: () => void;
   onNext: () => void;
   onPrev: () => void;
@@ -41,375 +38,552 @@ interface Props {
   onToggleRepeat: () => void;
   onToggleLike: () => void;
   onBack: () => void;
-  backListName?: string | null; // 보관함에서 진입 시 목록 이름
+  backListName?: string | null;
 }
 
-function formatTime(ms: number): string {
+function fmt(ms: number) {
   const s = Math.floor(Math.max(0, ms) / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-function ProgressSlider({ value, max, onComplete }: { value: number; max: number; onComplete: (v: number) => void }) {
+/* ── 배경 (BlurView 포함) — albumArt가 바뀔 때만 재렌더 ── */
+const PlayerBackground = memo(function PlayerBackground({ albumArt }: { albumArt: string }) {
+  return (
+    <>
+      <Image source={{ uri: albumArt }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
+      <BlurView intensity={92} tint="dark" style={StyleSheet.absoluteFillObject} />
+      <LinearGradient
+        colors={['rgba(0,0,0,0.25)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.97)']}
+        locations={[0, 0.42, 1]}
+        style={StyleSheet.absoluteFillObject}
+      />
+    </>
+  );
+});
+
+/* ── 진행 바 ── */
+function ProgressBar({ value, max, onChange }: { value: number; max: number; onChange: (v: number) => void }) {
+  const pct = max > 0 ? (value / max) * 100 : 0;
   return (
     <input
-      type="range"
-      min={0}
-      max={max || 1}
-      value={value}
-      onChange={(e) => onComplete(Number((e.target as HTMLInputElement).value))}
-      style={{ width: '100%', accentColor: '#fff', cursor: 'pointer', height: 4 } as any}
+      type="range" min={0} max={max || 1} value={value}
+      aria-label="재생 위치"
+      onChange={(e) => onChange(Number((e.target as HTMLInputElement).value))}
+      style={{
+        width: '100%', height: 4, cursor: 'pointer',
+        outline: 'none', WebkitAppearance: 'none', appearance: 'none',
+        background: `linear-gradient(to right,rgba(255,255,255,0.9) ${pct}%,rgba(255,255,255,0.25) ${pct}%)`,
+        borderRadius: 2, accentColor: '#fff',
+      } as React.CSSProperties}
     />
   );
 }
 
-// 배경 — track 바뀔 때만 리렌더
-const PlayerBackground = React.memo(({ uri }: { uri: string }) => (
-  <>
-    <Image source={{ uri }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
-    <BlurView intensity={95} style={StyleSheet.absoluteFillObject} tint="dark" />
-    <LinearGradient
-      colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.93)']}
-      style={StyleSheet.absoluteFillObject}
-      locations={[0, 0.38, 1]}
+function VolumeBar() {
+  const [vol, setVol] = useState(() => {
+    const saved = parseInt(localStorage.getItem('kpop_volume') ?? '', 10);
+    return isNaN(saved) ? ytGetVolume() : saved;
+  });
+  return (
+    <input
+      type="range" min={0} max={100} value={vol}
+      aria-label="볼륨"
+      onChange={e => {
+        const v = Number(e.target.value);
+        setVol(v);
+        ytSetVolume(v);
+      }}
+      style={{
+        flex: 1, height: 4, cursor: 'pointer',
+        outline: 'none', WebkitAppearance: 'none', appearance: 'none',
+        background: `linear-gradient(to right, rgba(255,255,255,0.9) ${vol}%, rgba(255,255,255,0.25) ${vol}%)`,
+        borderRadius: 2, accentColor: 'rgba(255,255,255,0.9)',
+      } as React.CSSProperties}
     />
-  </>
-));
+  );
+}
+
+/* ── Controls — PlayerScreen 외부에 정의, 매 렌더마다 remount 없음 ── */
+interface ControlsProps {
+  currentMs: number;
+  durationMs: number;
+  isPlaying: boolean;
+  shuffleMode: boolean;
+  repeatMode: RepeatMode;
+  lyricsOffset: number;
+  hasLyrics: boolean;
+  showLyrics: boolean;
+  showRemaining: boolean;
+  onSeek: (ms: number) => void;
+  onToggleShuffle: () => void;
+  onPrev: () => void;
+  onPlayPause: () => void;
+  onNext: () => void;
+  onToggleRepeat: () => void;
+  onLyricsOffsetChange: (v: number) => void;
+  onBack: () => void;
+  setShowLyrics: (v: boolean) => void;
+  setShowRemaining: React.Dispatch<React.SetStateAction<boolean>>;
+}
+
+function Controls({
+  currentMs, durationMs, isPlaying, shuffleMode, repeatMode,
+  lyricsOffset, hasLyrics, showLyrics, showRemaining,
+  onSeek, onToggleShuffle, onPrev, onPlayPause, onNext, onToggleRepeat,
+  onLyricsOffsetChange, onBack, setShowLyrics, setShowRemaining,
+}: ControlsProps) {
+  const rightTime = showRemaining && durationMs > 0
+    ? `-${fmt(durationMs - currentMs)}` : fmt(durationMs);
+  const shuffleColor = shuffleMode ? '#fff' : 'rgba(255,255,255,0.35)';
+  const repeatColor = repeatMode !== 'off' ? '#fff' : 'rgba(255,255,255,0.35)';
+  const offsetLabel = lyricsOffset === 0 ? '싱크' : lyricsOffset > 0 ? `+${lyricsOffset / 1000}s` : `${lyricsOffset / 1000}s`;
+
+  return (
+    <View style={styles.controlsBlock}>
+      {/* 진행 바 */}
+      <View style={styles.progressWrap}>
+        <ProgressBar value={currentMs} max={durationMs} onChange={onSeek} />
+        <View style={styles.timeRow}>
+          <Text style={styles.timeText}>{fmt(currentMs)}</Text>
+          <TouchableOpacity onPress={() => setShowRemaining(v => !v)}>
+            <Text style={styles.timeText}>{rightTime}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* 메인 컨트롤 */}
+      <View style={styles.mainControls}>
+        <TouchableOpacity onPress={onToggleShuffle} style={styles.sideBtn}>
+          <Icon name="shuffle" size={22} color={shuffleColor} />
+          {shuffleMode && <View style={styles.activeDot} />}
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={onPrev} style={styles.skipBtn}>
+          <Icon name="backward" size={34} color="#fff" />
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={onPlayPause} style={styles.playBtn}>
+          <Icon name={isPlaying ? 'pause' : 'play'} size={34} color="#000" />
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={onNext} style={styles.skipBtn}>
+          <Icon name="forward" size={34} color="#fff" />
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={onToggleRepeat} style={styles.sideBtn}>
+          <Icon name={repeatMode === 'one' ? 'repeat-1' : 'repeat'} size={22} color={repeatColor} />
+          {repeatMode !== 'off' && <View style={styles.activeDot} />}
+        </TouchableOpacity>
+      </View>
+
+      {/* 볼륨 */}
+      <View style={styles.volumeRow}>
+        <Icon name="volume-low" size={16} color="rgba(255,255,255,0.45)" />
+        <VolumeBar />
+        <Icon name="volume-high" size={16} color="rgba(255,255,255,0.45)" />
+      </View>
+
+      {/* 하단 툴바 */}
+      <View style={styles.bottomToolbar}>
+        <TouchableOpacity
+          style={[styles.toolbarBtn, showLyrics && styles.toolbarBtnActive]}
+          onPress={() => hasLyrics && setShowLyrics(!showLyrics)}
+          activeOpacity={0.7}
+        >
+          <Icon name="lyrics" size={18} color={showLyrics ? '#000' : (hasLyrics ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.25)')} />
+          <Text style={[styles.toolbarLabel, showLyrics && styles.toolbarLabelActive]}>가사</Text>
+        </TouchableOpacity>
+
+        {hasLyrics && (
+          <View style={[styles.syncControl, !showLyrics && { opacity: 0.45 }]}>
+            <TouchableOpacity
+              style={styles.syncBtn}
+              onPress={() => showLyrics && onLyricsOffsetChange(lyricsOffset - OFFSET_STEP)}
+            >
+              <Text style={styles.syncBtnText}>−</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => showLyrics && onLyricsOffsetChange(0)}>
+              <Text style={[styles.syncLabel, lyricsOffset !== 0 && { color: colors.primary }]}>
+                {offsetLabel}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.syncBtn}
+              onPress={() => showLyrics && onLyricsOffsetChange(lyricsOffset + OFFSET_STEP)}
+            >
+              <Text style={styles.syncBtnText}>+</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <TouchableOpacity style={styles.toolbarBtn} onPress={onBack} activeOpacity={0.7}>
+          <Icon name="queue" size={18} color="rgba(255,255,255,0.7)" />
+          <Text style={styles.toolbarLabel}>목록</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
 
 export default function PlayerScreen({
   track, lyrics, isPlaying, currentMs, durationMs,
   lyricsOffset, shuffleMode, repeatMode, isLiked,
   onLyricsOffsetChange, onPlayPause, onNext, onPrev, onSeek,
-  onToggleShuffle, onToggleRepeat, onToggleLike, onBack, backListName,
+  onToggleShuffle, onToggleRepeat, onToggleLike, onBack,
 }: Props) {
   const [showLyrics, setShowLyrics] = useState(false);
   const [activeVocab, setActiveVocab] = useState<VocabEntry | null>(null);
   const [showRemaining, setShowRemaining] = useState(true);
-  const scaleAnim = useRef(new Animated.Value(0.9)).current;
 
+  /* ── 슬라이드 업 (등장 애니메이션) ── */
+  const slideIn = useRef(new Animated.Value(SCREEN_H)).current;
   useEffect(() => {
-    Animated.spring(scaleAnim, {
-      toValue: isPlaying ? 1.0 : 0.9,
+    Animated.spring(slideIn, {
+      toValue: 0, tension: 68, friction: 12, useNativeDriver: true,
+    }).start();
+  }, []);
+
+  /* ── 스와이프 다운 (닫기) ── */
+  const swipeY = useRef(new Animated.Value(0)).current;
+  const panRef = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, { dy, dx }) =>
+        dy > 8 && Math.abs(dy) > Math.abs(dx) * 1.5,
+      onPanResponderMove: (_, { dy }) => {
+        if (dy > 0) swipeY.setValue(dy);
+      },
+      onPanResponderRelease: (_, { dy, vy }) => {
+        if (dy > 110 || vy > 1.0) {
+          Animated.spring(swipeY, {
+            toValue: SCREEN_H, tension: 60, friction: 12, useNativeDriver: true,
+          }).start(() => onBack());
+        } else {
+          Animated.spring(swipeY, {
+            toValue: 0, tension: 120, friction: 14, useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
+  /* ── 앨범 아트 스케일 (재생 여부) ── */
+  const artScale = useRef(new Animated.Value(isPlaying ? 1.0 : 0.88)).current;
+  useEffect(() => {
+    Animated.spring(artScale, {
+      toValue: isPlaying ? 1.0 : 0.88,
       tension: 55, friction: 12, useNativeDriver: true,
     }).start();
   }, [isPlaying]);
 
   const hasLyrics = lyrics.length > 0;
-  const adjustedMs = currentMs + lyricsOffset;
-  const currentLineIndex = (() => {
-    if (!hasLyrics || adjustedMs <= 0) return -1;
-    return lyrics.findIndex((l) => adjustedMs >= l.startMs && adjustedMs < l.endMs);
-  })();
+  const adjMs = currentMs + lyricsOffset;
+  const currentLine = hasLyrics && adjMs > 0
+    ? lyrics.findIndex(l => adjMs >= l.startMs && adjMs < l.endMs)
+    : -1;
 
-  const offsetLabel = lyricsOffset === 0
-    ? '싱크'
-    : lyricsOffset > 0 ? `+${lyricsOffset / 1000}s` : `${lyricsOffset / 1000}s`;
-
-  const rightTime = showRemaining && durationMs > 0
-    ? `-${formatTime(durationMs - currentMs)}`
-    : formatTime(durationMs);
-
-  const repeatIcon = repeatMode === 'one' ? '↻¹' : '↻';
-  const repeatColor = repeatMode !== 'off' ? colors.primary : 'rgba(255,255,255,0.5)';
-
-  // ── 하단 공통 컨트롤 블록 ────────────────────────────────
-  const ControlsBlock = () => (
-    <View style={styles.controlsArea}>
-      {/* 프로그레스 */}
-      <View style={styles.sliderWrapper}>
-        <ProgressSlider value={currentMs} max={durationMs} onComplete={onSeek} />
-      </View>
-      <View style={styles.timeRow}>
-        <Text style={styles.timeText}>{formatTime(currentMs)}</Text>
-        <TouchableOpacity onPress={() => setShowRemaining((r) => !r)}>
-          <Text style={styles.timeText}>{rightTime}</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* 재생 컨트롤: Shuffle · Prev · Play · Next · Repeat */}
-      <View style={styles.mainControls}>
-        <TouchableOpacity onPress={onToggleShuffle} style={styles.sideBtn}>
-          <Text style={[styles.sideBtnIcon, shuffleMode && { color: colors.primary }]}>⇌</Text>
-          {shuffleMode && <View style={styles.activeDot} />}
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={onPrev} style={styles.skipBtnOuter}>
-          <View style={styles.skipBtnCircle}>
-            <Text style={styles.skipBtnIcon}>⏮</Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={onPlayPause} style={styles.playBtnOuter}>
-          <View style={styles.playBtnCircle}>
-            <Text style={styles.playBtnIcon}>{isPlaying ? '⏸' : '▶'}</Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={onNext} style={styles.skipBtnOuter}>
-          <View style={styles.skipBtnCircle}>
-            <Text style={styles.skipBtnIcon}>⏭</Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={onToggleRepeat} style={styles.sideBtn}>
-          <Text style={[styles.sideBtnIcon, { color: repeatColor }]}>{repeatIcon}</Text>
-          {repeatMode !== 'off' && <View style={styles.activeDot} />}
-        </TouchableOpacity>
-      </View>
-
-      {/* ── 하단 바: 💬 가사 | 싱크 | ☰ 목록 ── */}
-      <View style={styles.bottomBar}>
-        {/* 왼쪽: 가사보기 — 항상 누를 수 있음 */}
-        <TouchableOpacity
-          style={styles.bottomBarBtn}
-          onPress={() => setShowLyrics((v) => !v)}
-          activeOpacity={0.7}
-        >
-          <View style={[styles.bottomBarIconWrap, showLyrics && styles.bottomBarIconActive]}>
-            <Text style={styles.bottomBarIconText}>💬</Text>
-          </View>
-          <Text style={[styles.bottomBarLabel, showLyrics && { color: colors.primary }]}>가사</Text>
-        </TouchableOpacity>
-
-        {/* 가운데: 싱크 — 항상 표시, 가사 없으면 흐리게 */}
-        <View style={styles.bottomBarCenter}>
-          <View style={[styles.syncRow, !hasLyrics && { opacity: 0.35 }]}>
-            <TouchableOpacity style={styles.syncBtn} onPress={() => hasLyrics && onLyricsOffsetChange(lyricsOffset - OFFSET_STEP)}>
-              <Text style={styles.syncBtnText}>−</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.syncLabel} onPress={() => hasLyrics && onLyricsOffsetChange(0)}>
-              <Text style={[styles.syncText, lyricsOffset !== 0 && { color: colors.primary }]}>
-                {offsetLabel}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.syncBtn} onPress={() => hasLyrics && onLyricsOffsetChange(lyricsOffset + OFFSET_STEP)}>
-              <Text style={styles.syncBtnText}>+</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* 오른쪽: 목록 */}
-        <TouchableOpacity style={styles.bottomBarBtn} onPress={onBack} activeOpacity={0.7}>
-          <View style={styles.bottomBarIconWrap}>
-            <Text style={styles.bottomBarIconText}>☰</Text>
-          </View>
-          <Text style={styles.bottomBarLabel}>목록</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
+  const controlsProps: ControlsProps = {
+    currentMs, durationMs, isPlaying, shuffleMode, repeatMode,
+    lyricsOffset, hasLyrics, showLyrics, showRemaining,
+    onSeek, onToggleShuffle, onPrev, onPlayPause, onNext, onToggleRepeat,
+    onLyricsOffsetChange, onBack, setShowLyrics, setShowRemaining,
+  };
 
   return (
-    <View style={styles.container}>
+    <Animated.View
+      style={[
+        styles.container,
+        { transform: [{ translateY: Animated.add(slideIn, swipeY) }] },
+      ]}
+    >
       <StatusBar barStyle="light-content" />
-      <PlayerBackground uri={track.albumArt} />
 
+      {/* 배경: albumArt가 바뀔 때만 재렌더 */}
+      <PlayerBackground albumArt={track.albumArt} />
+
+      {/* ── 가사 모드 ── */}
       {showLyrics && hasLyrics ? (
-        /* ── 가사 보기 모드 ── */
         <>
           <View style={styles.lyricsHeader}>
-            <TouchableOpacity style={styles.lyricsHeaderCenter} activeOpacity={0.8} onPress={() => setShowLyrics(false)}>
+            <TouchableOpacity onPress={() => setShowLyrics(false)} style={styles.lyricsHeaderBtn}>
+              <Icon name="chevron-down" size={22} color="#fff" />
+            </TouchableOpacity>
+            <View style={styles.lyricsHeaderCenter}>
               <Image source={{ uri: track.albumArt }} style={styles.lyricsThumb} contentFit="cover" />
-              <View style={styles.lyricsHeaderInfo}>
-                <Text style={styles.lyricsHeaderTitle} numberOfLines={1}>{track.name}</Text>
-                <Text style={styles.lyricsHeaderArtist} numberOfLines={1}>{track.artists.join(', ')}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.lyricsSongName} numberOfLines={1}>{track.name}</Text>
+                <Text style={styles.lyricsArtistName} numberOfLines={1}>{track.artists.join(', ')}</Text>
               </View>
+            </View>
+            <TouchableOpacity onPress={onToggleLike} style={styles.lyricsHeaderBtn}>
+              <Icon name={isLiked ? 'heart-fill' : 'heart'} size={20} color={isLiked ? colors.primary : 'rgba(255,255,255,0.6)'} />
             </TouchableOpacity>
-
-            {/* 즐겨찾기 */}
-            <TouchableOpacity onPress={onToggleLike} style={styles.starBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-              <Text style={[styles.starIcon, isLiked && { color: '#FFD60A' }]}>
-                {isLiked ? '★' : '☆'}
-              </Text>
-            </TouchableOpacity>
-
           </View>
 
-          <View style={styles.lyricsArea}>
+          <View style={{ flex: 1, overflow: 'hidden' }}>
             <LyricsView
               lyrics={lyrics}
-              currentLineIndex={currentLineIndex}
-              currentMs={adjustedMs}
+              currentLineIndex={currentLine}
+              currentMs={adjMs}
               onWordPress={setActiveVocab}
+              onLineSyncPress={(lineStartMs) => onLyricsOffsetChange(currentMs - lineStartMs)}
             />
           </View>
 
-          {ControlsBlock()}
+          <Controls {...controlsProps} />
         </>
       ) : (
         /* ── 일반 플레이어 모드 ── */
         <>
-          {/* 보관함 목록 복귀 버튼 */}
-          {backListName ? (
-            <TouchableOpacity style={styles.backListBar} onPress={onBack} activeOpacity={0.75}>
-              <Text style={styles.backListIcon}>☰</Text>
-              <Text style={styles.backListText} numberOfLines={1}>{backListName}</Text>
-            </TouchableOpacity>
-          ) : null}
+          <View {...panRef.panHandlers} style={styles.topArea}>
+            <View style={styles.dragHandle} />
+            <View style={styles.header}>
+              <TouchableOpacity onPress={onBack} style={styles.headerIconBtn}>
+                <Icon name="chevron-down" size={26} color="#fff" />
+              </TouchableOpacity>
 
-          <View style={styles.header}>
-            <View style={{ flex: 1 }} />
-            {/* 즐겨찾기 — 상단 우측 */}
-            <TouchableOpacity onPress={onToggleLike} style={styles.starBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-              <Text style={[styles.starIcon, isLiked && { color: '#FFD60A' }]}>
-                {isLiked ? '★' : '☆'}
-              </Text>
-            </TouchableOpacity>
+              <View style={styles.headerTitleBlock}>
+                <Text style={styles.headerLabel}>지금 재생 중</Text>
+                <Text style={styles.headerAlbum} numberOfLines={1}>{track.album}</Text>
+              </View>
+
+              <TouchableOpacity style={styles.headerIconBtn}>
+                <Icon name="ellipsis" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
           </View>
 
-          <View style={styles.albumSection}>
-            <Animated.View style={[styles.albumShadow, { transform: [{ scale: scaleAnim }] }]}>
+          <View style={styles.artSection}>
+            <Animated.View style={[styles.artShadow, { transform: [{ scale: artScale }] }]}>
               <Image source={{ uri: track.albumArt }} style={styles.albumArt} contentFit="cover" />
             </Animated.View>
           </View>
 
-          <View style={styles.songInfoArea}>
-            <Text style={styles.songName} numberOfLines={1}>{track.name}</Text>
-            <Text style={styles.artistName} numberOfLines={1}>{track.artists.join(', ')}</Text>
+          <View style={styles.infoSection}>
+            <View style={styles.infoRow}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text style={styles.songTitle} numberOfLines={1}>{track.name}</Text>
+                <Text style={styles.artistName} numberOfLines={1}>{track.artists.join(', ')}</Text>
+              </View>
+              <TouchableOpacity onPress={onToggleLike} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                <Icon
+                  name={isLiked ? 'heart-fill' : 'heart'}
+                  size={26}
+                  color={isLiked ? colors.primary : 'rgba(255,255,255,0.55)'}
+                />
+              </TouchableOpacity>
+            </View>
           </View>
 
-          {ControlsBlock()}
+          <Controls {...controlsProps} />
         </>
       )}
 
       {activeVocab && (
         <VocabCard vocab={activeVocab} songName={track.name} onClose={() => setActiveVocab(null)} />
       )}
-    </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-
-  /* ── 보관함 목록 복귀 바 ── */
-  backListBar: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingTop: 56, paddingHorizontal: spacing.lg, paddingBottom: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.12)',
-  },
-  backListIcon: { fontSize: 15, color: 'rgba(255,255,255,0.55)' },
-  backListText: {
-    fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.7)',
-    flex: 1,
+  container: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: '#000',
   },
 
-  /* ── 일반 헤더 ── */
+  topArea: { paddingTop: 14 },
+  dragHandle: {
+    alignSelf: 'center',
+    width: 36, height: 5,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.35)',
+    marginBottom: 12,
+  },
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingTop: 16, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingBottom: 8,
   },
-  headerTitle: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.75)', textTransform: 'uppercase', letterSpacing: 0.6 },
-  homeBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 16, paddingVertical: 9,
-    borderRadius: borderRadius.full,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
+  headerIconBtn: {
+    width: 40, height: 40,
+    alignItems: 'center', justifyContent: 'center',
   },
-  homeBtnIcon: { fontSize: 18, color: '#fff' },
-  homeBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
-
-  /* ── 즐겨찾기 ★ ── */
-  starBtn: {
-    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderRadius: 22, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+  headerTitleBlock: { flex: 1, alignItems: 'center' },
+  headerLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.55)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 2,
   },
-  starIcon: { fontSize: 22, color: 'rgba(255,255,255,0.7)' },
-
-  /* ── 앨범 아트 ── */
-  albumSection: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 36 },
-  albumShadow: {
-    shadowColor: '#000', shadowOffset: { width: 0, height: 22 },
-    shadowOpacity: 0.65, shadowRadius: 32, elevation: 20, borderRadius: 12,
+  headerAlbum: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#fff',
+    textAlign: 'center',
   },
-  albumArt: { width: ALBUM_ART_SIZE, height: ALBUM_ART_SIZE, borderRadius: 12 },
 
-  /* ── 곡 정보 ── */
-  songInfoArea: { paddingHorizontal: spacing.xl, paddingBottom: spacing.sm },
-  songName: { fontSize: 24, fontWeight: '700', color: '#fff', marginBottom: 4 },
-  artistName: { fontSize: 18, color: 'rgba(255,255,255,0.65)', fontWeight: '500' },
+  artSection: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    marginVertical: 16,
+  },
+  artShadow: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 24 },
+    shadowOpacity: 0.75,
+    shadowRadius: 36,
+    elevation: 24,
+    borderRadius: 14,
+  },
+  albumArt: {
+    width: ART_SIZE,
+    height: ART_SIZE,
+    borderRadius: 14,
+  },
 
-  /* ── 컨트롤 영역 ── */
-  controlsArea: { paddingHorizontal: spacing.xl, paddingBottom: 28 },
-  sliderWrapper: { width: '100%' },
-  timeRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4, marginBottom: 18 },
-  timeText: { fontSize: 12, fontWeight: '500', color: 'rgba(255,255,255,0.5)' },
+  infoSection: {
+    paddingHorizontal: spacing.xl,
+    marginBottom: 4,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  songTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  artistName: {
+    fontSize: 17,
+    fontWeight: '400',
+    color: 'rgba(255,255,255,0.6)',
+  },
+
+  controlsBlock: {
+    flex: 1,
+    paddingHorizontal: spacing.xl,
+    paddingBottom: 24,
+    justifyContent: 'flex-end',
+    gap: 16,
+  },
+  progressWrap: { gap: 6 },
+  timeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  timeText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.45)',
+  },
 
   mainControls: {
-    flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'space-between', marginBottom: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  sideBtn: { alignItems: 'center', width: 36 },
-  sideBtnIcon: { fontSize: 22, color: 'rgba(255,255,255,0.65)' },
-  activeDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: colors.primary, marginTop: 3 },
-
-  /* Prev / Next — 반투명 원형 */
-  skipBtnOuter: { shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 6 },
-  skipBtnCircle: {
-    width: 56, height: 56, borderRadius: 28,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)',
+  sideBtn: { width: 36, alignItems: 'center', gap: 3 },
+  activeDot: {
+    width: 4, height: 4, borderRadius: 2,
+    backgroundColor: '#fff',
+  },
+  skipBtn: {
+    width: 56, height: 56,
     alignItems: 'center', justifyContent: 'center',
   },
-  skipBtnIcon: { fontSize: 22, color: '#fff' },
-
-  /* Play — 흰 원 */
-  playBtnOuter: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8 },
-  playBtnCircle: {
-    width: 72, height: 72, borderRadius: 36,
-    backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
+  playBtn: {
+    width: 70, height: 70, borderRadius: 35,
+    backgroundColor: '#fff',
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 12,
   },
-  playBtnIcon: { fontSize: 30, color: '#000', marginLeft: 4 },
 
-  /* ── 하단 바: 💬 가사 | 싱크 | ☰ 목록 ── */
-  bottomBar: {
-    flexDirection: 'row', alignItems: 'center',
-    borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)',
+  volumeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+
+  bottomToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.1)',
     paddingTop: 14,
   },
-  bottomBarBtn: { flex: 1, alignItems: 'center', gap: 5 },
-  bottomBarCenter: { flex: 1.4, alignItems: 'center' },
-  bottomBarIconWrap: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)',
-    alignItems: 'center', justifyContent: 'center',
+  toolbarBtn: {
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: borderRadius.md,
   },
-  bottomBarIconActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  bottomBarIconText: { fontSize: 20 },
-  bottomBarLabel: { fontSize: 11, color: 'rgba(255,255,255,0.55)', fontWeight: '600' },
+  toolbarBtnActive: {
+    backgroundColor: '#fff',
+  },
+  toolbarLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.55)',
+  },
+  toolbarLabelActive: { color: '#000' },
 
-  /* 싱크 컨트롤 (하단 바 가운데) */
-  syncRow: {
-    flexDirection: 'row', alignItems: 'center',
+  syncControl: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.12)',
     borderRadius: borderRadius.full,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
-  syncBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  syncBtnText: { fontSize: 22, fontWeight: '300', color: '#fff', lineHeight: 26 },
-  syncLabel: { paddingHorizontal: 8, height: 40, minWidth: 52, alignItems: 'center', justifyContent: 'center' },
-  syncText: { fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.7)' },
+  syncBtn: {
+    width: 36, height: 36,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  syncBtnText: { fontSize: 20, fontWeight: '300', color: '#fff', lineHeight: 24 },
+  syncLabel: {
+    paddingHorizontal: 8,
+    fontSize: 11, fontWeight: '700',
+    color: 'rgba(255,255,255,0.7)',
+  },
 
-  /* ── 가사 헤더 ── */
   lyricsHeader: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingTop: 56, paddingHorizontal: spacing.lg, paddingBottom: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 56,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.12)',
     gap: 10,
-    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)',
-    backgroundColor: 'rgba(0,0,0,0.3)',
   },
-  lyricsHeaderCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  lyricsThumb: { width: 48, height: 48, borderRadius: 10 },
-  lyricsHeaderInfo: { flex: 1 },
-  lyricsHeaderTitle: { fontSize: 16, fontWeight: '700', color: '#fff', marginBottom: 2 },
-  lyricsHeaderArtist: { fontSize: 13, color: 'rgba(255,255,255,0.65)' },
-  closeBadge: {
-    paddingHorizontal: 14, paddingVertical: 8,
-    backgroundColor: colors.primary, borderRadius: borderRadius.full,
+  lyricsHeaderBtn: {
+    width: 40, height: 40,
+    alignItems: 'center', justifyContent: 'center',
   },
-  closeBadgeText: { fontSize: 13, fontWeight: '700', color: '#fff' },
-  lyricsArea: { flex: 1, overflow: 'hidden' },
+  lyricsHeaderCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  lyricsThumb: { width: 44, height: 44, borderRadius: 8 },
+  lyricsSongName: {
+    fontSize: 14, fontWeight: '700', color: '#fff', marginBottom: 2,
+  },
+  lyricsArtistName: {
+    fontSize: 12, color: 'rgba(255,255,255,0.6)',
+  },
 });

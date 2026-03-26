@@ -34,5 +34,20 @@
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root"></div>
+    <script>
+      // 앱 JS 번들 로드 전 전역 에러 캐처 — 개발자 도구 없어도 오류 확인 가능
+      function showError(msg) {
+        var d = document.createElement('div');
+        d.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#000;color:#f55;padding:24px;font-size:13px;font-family:monospace;z-index:99999;overflow:auto;white-space:pre-wrap;word-break:break-all';
+        d.textContent = msg;
+        document.body.appendChild(d);
+      }
+      window.onerror = function(msg, src, line, col, err) {
+        showError('JS ERROR:\n' + msg + '\n' + src + ':' + line + ':' + col + '\n' + (err && err.stack ? err.stack : ''));
+      };
+      window.addEventListener('unhandledrejection', function(e) {
+        showError('PROMISE ERROR:\n' + (e.reason && e.reason.stack ? e.reason.stack : String(e.reason)));
+      });
+    </script>
   </body>
 </html>

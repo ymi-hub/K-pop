@@ -10,14 +10,18 @@ import {
   TextInput,
   Modal,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { colors, spacing, borderRadius } from '../theme';
 import { getSavedWords, updateWord, deleteWord, SavedWord } from '../services/vocabStorage';
 import { subscribeVocab, saveVocab } from '../services/syncService';
 import { mergeFromFirestore } from '../services/vocabStorage';
+import { Track } from '../types';
 
 interface Props {
   onBack: () => void;
   uid: string | null;
+  tracks: Track[];
+  onQuizPress?: () => void;
 }
 
 const difficultyColor = {
@@ -26,11 +30,15 @@ const difficultyColor = {
   hard: '#FC3C44',
 };
 
-export default function VocabListScreen({ onBack, uid }: Props) {
+export default function VocabListScreen({ onBack, uid, tracks, onQuizPress }: Props) {
   const [words, setWords] = useState<SavedWord[]>(() => getSavedWords());
   const [editTarget, setEditTarget] = useState<SavedWord | null>(null);
   const [editKorean, setEditKorean] = useState('');
   const [editMeaning, setEditMeaning] = useState('');
+  const [quizMode, setQuizMode] = useState(false);
+  const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
+  const [quizScore, setQuizScore] = useState(0);
+  const [showAnswer, setShowAnswer] = useState(false);
 
   // 로그인 상태면 Firestore 실시간 구독
   useEffect(() => {
@@ -45,7 +53,32 @@ export default function VocabListScreen({ onBack, uid }: Props) {
     return unsub;
   }, [uid]);
 
-  const reload = () => setWords(getSavedWords());
+  const handleStartQuiz = () => {
+    if (words.length < 3) {
+      alert('퀴즈를 하려면 최소 3개의 단어가 필요합니다.');
+      return;
+    }
+    setQuizMode(true);
+    setCurrentQuizIndex(0);
+    setQuizScore(0);
+    setShowAnswer(false);
+  };
+
+  const handleQuizAnswer = (correct: boolean) => {
+    if (correct) setQuizScore(prev => prev + 1);
+    setShowAnswer(true);
+  };
+
+  const handleNextQuiz = () => {
+    if (currentQuizIndex < words.length - 1) {
+      setCurrentQuizIndex(prev => prev + 1);
+      setShowAnswer(false);
+    } else {
+      // 퀴즈 종료
+      alert(`퀴즈 완료! 점수: ${quizScore}/${words.length}`);
+      setQuizMode(false);
+    }
+  };
 
   const handleDelete = useCallback((word: string) => {
     if (typeof window !== 'undefined') {
@@ -66,6 +99,11 @@ export default function VocabListScreen({ onBack, uid }: Props) {
     updateWord(editTarget.word, { koreanMeaning: editKorean, meaning: editMeaning }, uid)
       .then(reload);
     setEditTarget(null);
+  };
+
+  const getAlbumArt = (songName: string) => {
+    const track = tracks.find(t => t.name === songName);
+    return track?.albumArt || 'https://via.placeholder.com/60x60/333/fff?text=?';
   };
 
   const renderItem = ({ item }: { item: SavedWord }) => (
@@ -93,7 +131,10 @@ export default function VocabListScreen({ onBack, uid }: Props) {
       {item.koreanMeaning ? <Text style={styles.korean}>{item.koreanMeaning}</Text> : null}
       {item.meaning ? <Text style={styles.meaning}>{item.meaning}</Text> : null}
 
-      <Text style={styles.songName}>♪ {item.songName}</Text>
+      <View style={styles.songRow}>
+        <Image source={{ uri: getAlbumArt(item.songName) }} style={styles.albumArt} />
+        <Text style={styles.songName}>♪ {item.songName}</Text>
+      </View>
     </View>
   );
 
@@ -111,13 +152,62 @@ export default function VocabListScreen({ onBack, uid }: Props) {
             {words.length}개 저장됨{uid ? ' · 동기화 중' : ''}
           </Text>
         </View>
-        <View style={{ width: 40 }} />
+        {words.length >= 3 && !quizMode && (
+          <TouchableOpacity onPress={onQuizPress ?? handleStartQuiz} style={styles.quizBtn}>
+            <Text style={styles.quizBtnText}>퀴즈</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {words.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyIcon}>📖</Text>
           <Text style={styles.emptyText}>저장된 단어가 없습니다{'\n'}가사에서 단어를 터치해 저장하세요</Text>
+        </View>
+      ) : quizMode ? (
+        <View style={styles.quizContainer}>
+          <View style={styles.quizHeader}>
+            <Text style={styles.quizProgress}>
+              {currentQuizIndex + 1} / {words.length}
+            </Text>
+            <Text style={styles.quizScore}>
+              점수: {quizScore}
+            </Text>
+          </View>
+          
+          <View style={styles.quizCard}>
+            <Text style={styles.quizWord}>{words[currentQuizIndex].word}</Text>
+            {showAnswer ? (
+              <View style={styles.quizAnswer}>
+                <Text style={styles.quizMeaning}>{words[currentQuizIndex].koreanMeaning}</Text>
+                <Text style={styles.quizEnglish}>{words[currentQuizIndex].meaning}</Text>
+                <TouchableOpacity style={styles.nextBtn} onPress={handleNextQuiz}>
+                  <Text style={styles.nextBtnText}>
+                    {currentQuizIndex < words.length - 1 ? '다음' : '완료'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.quizOptions}>
+                <TouchableOpacity
+                  style={styles.optionBtn}
+                  onPress={() => handleQuizAnswer(true)}
+                >
+                  <Text style={styles.optionText}>알고 있어요</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.optionBtn}
+                  onPress={() => handleQuizAnswer(false)}
+                >
+                  <Text style={styles.optionText}>모르겠어요</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+          
+          <TouchableOpacity style={styles.quizExit} onPress={() => setQuizMode(false)}>
+            <Text style={styles.quizExitText}>퀴즈 종료</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
@@ -181,9 +271,57 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   backBtn: { width: 40, alignItems: 'center' },
-  backIcon: { fontSize: 36, color: colors.text, lineHeight: 40 },
-  title: { fontSize: 30, fontWeight: '800', color: colors.text, textAlign: 'center' },
-  subtitle: { fontSize: 14, color: colors.textTertiary, textAlign: 'center', marginTop: 2 },
+  quizBtn: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: borderRadius.lg,
+  },
+  quizBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  quizContainer: { flex: 1, padding: spacing.md },
+  quizHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  quizProgress: { fontSize: 16, fontWeight: '600', color: colors.text },
+  quizScore: { fontSize: 16, fontWeight: '600', color: colors.primary },
+  quizCard: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.xl,
+    padding: spacing.xl,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  quizWord: { fontSize: 32, fontWeight: '800', color: colors.text, marginBottom: spacing.lg },
+  quizOptions: { width: '100%', gap: spacing.md },
+  optionBtn: {
+    backgroundColor: colors.background,
+    padding: spacing.lg,
+    borderRadius: borderRadius.lg,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  optionText: { fontSize: 18, fontWeight: '600', color: colors.text },
+  quizAnswer: { width: '100%', alignItems: 'center' },
+  quizMeaning: { fontSize: 24, fontWeight: '700', color: colors.primary, marginBottom: spacing.md },
+  quizEnglish: { fontSize: 16, color: colors.textSecondary, marginBottom: spacing.xl, textAlign: 'center' },
+  nextBtn: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.lg,
+  },
+  nextBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  quizExit: {
+    alignSelf: 'center',
+    marginTop: spacing.xl,
+    padding: spacing.md,
+  },
+  quizExitText: { color: colors.textTertiary, fontSize: 14 },
   list: { padding: spacing.md, gap: 14 },
   card: {
     backgroundColor: colors.surface,
@@ -208,7 +346,9 @@ const styles = StyleSheet.create({
   pronunciation: { fontSize: 15, color: colors.primary, fontStyle: 'italic' },
   korean: { fontSize: 20, fontWeight: '700', color: colors.text },
   meaning: { fontSize: 16, color: colors.textSecondary, lineHeight: 24 },
-  songName: { fontSize: 13, color: colors.textTertiary, marginTop: 4 },
+  songRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  albumArt: { width: 32, height: 32, borderRadius: 4 },
+  songName: { fontSize: 13, color: colors.textTertiary },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 },
   emptyIcon: { fontSize: 56 },
   emptyText: { fontSize: 15, color: colors.textTertiary, textAlign: 'center', lineHeight: 22 },
