@@ -123,6 +123,22 @@ async function fetchLrcNames(query: string): Promise<string[]> {
   }
 }
 
+// 곡명에서 괄호/대시 이후 버전 표기 제거 (feat, remix, ver, edit 등)
+function baseTrackName(name: string): string {
+  return normalizeName(name.replace(/[\(\-].*$/i, '').trim());
+}
+
+// 곡명(버전 무시) + 아티스트 기준 중복 제거 (첫 번째 등장 우선)
+function deduplicateTracks(results: MusicResult[]): MusicResult[] {
+  const seen = new Set<string>();
+  return results.filter(r => {
+    const key = `${baseTrackName(r.name)}::${normalizeName(r.artist)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 async function searchMusic(query: string): Promise<MusicResult[]> {
   // iTunes + lrclib 병렬 조회
   const [itunes, lrcNames] = await Promise.all([
@@ -130,8 +146,8 @@ async function searchMusic(query: string): Promise<MusicResult[]> {
     fetchLrcNames(query),
   ]);
 
-  // 이미지 있는 곡만 추림
-  const withImage = itunes.filter(r => !!r.albumArt);
+  // 이미지 있는 곡만 추림 + 중복 제거
+  const withImage = deduplicateTracks(itunes.filter(r => !!r.albumArt));
   if (withImage.length === 0) return [];
 
   // lrclib 결과 없으면 이미지 있는 곡 전체 반환
@@ -147,7 +163,8 @@ function groupByAlbum(results: MusicResult[]): AlbumGroup[] {
   const map = new Map<string, AlbumGroup>();
   for (const r of results) {
     const albumName = r.album.trim() || '알 수 없는 앨범';
-    const key = `${r.artist.toLowerCase()}::${albumName.toLowerCase()}`;
+    // 앨범명도 normalizeName으로 정규화 → 표기 차이 중복 앨범 통합
+    const key = `${normalizeName(r.artist)}::${normalizeName(albumName)}`;
     if (!map.has(key)) {
       map.set(key, { key, album: albumName, artist: r.artist, albumArt: r.albumArt, tracks: [] });
     }

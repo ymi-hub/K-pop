@@ -143,8 +143,8 @@ export default function VocabListScreen({ onBack, uid, tracks, onQuizPress }: Pr
       <StatusBar barStyle="light-content" />
 
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <Text style={styles.backIcon}>‹</Text>
+        <TouchableOpacity onPress={onBack} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Text style={styles.backIcon}>‹ 홈</Text>
         </TouchableOpacity>
         <View>
           <Text style={styles.title}>단어장</Text>
@@ -270,7 +270,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  backBtn: { width: 40, alignItems: 'center' },
+  backBtn: { alignItems: 'center', flexDirection: 'row' },
+  backIcon: { fontSize: 16, fontWeight: '600', color: colors.primary },
   quizBtn: {
     backgroundColor: colors.primary,
     paddingHorizontal: 16,
