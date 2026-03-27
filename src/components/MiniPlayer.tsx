@@ -7,7 +7,6 @@ import { BlurView } from 'expo-blur';
 import { colors, borderRadius } from '../theme';
 import { Track } from '../types';
 import Icon from './Icon';
-import { TAB_BAR_H } from './TabBar';
 
 export const MINI_PLAYER_H = 66; // paddingVertical(10×2) + art(46)
 import { ytGetCurrentTime, ytGetDuration } from '../services/youtubePlayer';
@@ -90,7 +89,7 @@ export default memo(MiniPlayer);
 const styles = StyleSheet.create({
   wrapper: {
     position: 'absolute',
-    bottom: TAB_BAR_H + 8,
+    bottom: 8,
     left: 8, right: 8,
     borderRadius: 14,
     overflow: 'hidden',

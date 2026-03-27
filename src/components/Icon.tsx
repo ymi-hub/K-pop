@@ -7,7 +7,7 @@ import { Image } from 'expo-image';
 import { StyleProp, ImageStyle } from 'react-native';
 
 export type IconName =
-  | 'chevron-down' | 'chevron-right'
+  | 'chevron-down' | 'chevron-right' | 'chevron-left'
   | 'ellipsis'
   | 'heart' | 'heart-fill'
   | 'play' | 'pause'
@@ -27,6 +27,8 @@ const ICONS: Record<IconName, (c: string) => string> = {
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="${c}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   'chevron-right': (c) =>
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" fill="none" stroke="${c}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  'chevron-left': (c) =>
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" fill="none" stroke="${c}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   'ellipsis': (c) =>
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="${c}"/><circle cx="12" cy="12" r="1.6" fill="${c}"/><circle cx="19" cy="12" r="1.6" fill="${c}"/></svg>`,
   'heart': (c) =>

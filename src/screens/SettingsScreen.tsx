@@ -7,14 +7,20 @@ import {
   SafeAreaView,
   StatusBar,
   Switch,
+  Image,
 } from 'react-native';
+import { User } from 'firebase/auth';
 import { colors, spacing, borderRadius } from '../theme';
 
 interface Props {
   onBack: () => void;
+  user?: User | null;
+  authLoading?: boolean;
+  onLogin?: () => void;
+  onLogout?: () => void;
 }
 
-export default function SettingsScreen({ onBack }: Props) {
+export default function SettingsScreen({ onBack, user, authLoading, onLogin, onLogout }: Props) {
   const [darkMode, setDarkMode] = useState(true);
   const [notifications, setNotifications] = useState(false);
   const [autoPlay, setAutoPlay] = useState(true);
@@ -32,6 +38,45 @@ export default function SettingsScreen({ onBack }: Props) {
       </View>
 
       <View style={styles.content}>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>계정 동기화</Text>
+          {user ? (
+            <View>
+              <View style={styles.accountRow}>
+                {user.photoURL ? (
+                  <Image source={{ uri: user.photoURL }} style={styles.avatar} />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <Text style={styles.avatarText}>{user.displayName?.[0] ?? '?'}</Text>
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.accountName} numberOfLines={1}>{user.displayName}</Text>
+                  <View style={styles.syncRow}>
+                    <View style={styles.syncDot} />
+                    <Text style={styles.syncLabel}>모든 기기 실시간 동기화 중</Text>
+                  </View>
+                </View>
+              </View>
+              <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
+                <Text style={styles.logoutText}>로그아웃</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.googleBtn}
+              onPress={onLogin}
+              disabled={authLoading}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.googleIcon}>G</Text>
+              <Text style={styles.googleText}>
+                {authLoading ? '로그인 중...' : 'Google로 로그인 — 모든 기기 동기화'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>외관</Text>
           <View style={styles.setting}>
@@ -117,4 +162,32 @@ const styles = StyleSheet.create({
   settingLabel: { fontSize: 16, color: colors.text },
   info: { gap: spacing.sm },
   infoText: { fontSize: 14, color: colors.textSecondary },
+
+  // 계정 동기화
+  accountRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.md },
+  avatar: { width: 44, height: 44, borderRadius: 22 },
+  avatarPlaceholder: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: '#FC3C44', alignItems: 'center', justifyContent: 'center',
+  },
+  avatarText: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  accountName: { fontSize: 15, fontWeight: '600', color: colors.text, marginBottom: 4 },
+  syncRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  syncDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#30D158' },
+  syncLabel: { fontSize: 12, color: '#30D158', fontWeight: '600' },
+  logoutBtn: {
+    paddingVertical: 10, borderRadius: borderRadius.lg,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+  },
+  logoutText: { fontSize: 14, color: 'rgba(255,255,255,0.6)' },
+  googleBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderRadius: borderRadius.lg, paddingHorizontal: 16, paddingVertical: 12,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+  },
+  googleIcon: { fontSize: 16, fontWeight: '900', color: '#4285F4', width: 24, textAlign: 'center' },
+  googleText: { fontSize: 14, color: 'rgba(255,255,255,0.7)', flex: 1 },
 });

@@ -1,0 +1,251 @@
+K-pop English — 기능정의서
+작성일: 2026-03-27
+=================================================================
+
+
+■ 1. 프로젝트 개요
+-----------------------------------------------------------------
+- 앱명   : K-pop English (K-pop 영어 학습 앱)
+- 플랫폼 : React Native (Expo SDK 55) → Web Only (react-native-web)
+- 배포   : Firebase Hosting  https://k-pop-e9f48.web.app
+- 인증   : Firebase Auth (Google 로그인 — signInWithRedirect)
+- DB     : Firestore (로그인 시 실시간 동기화) / localStorage (비로그인)
+- 음원   : iTunes 30초 미리보기 (즉시 재생) + YouTube IFrame (전체 곡)
+
+
+■ 2. 화면 구성 / 메뉴 구조
+-----------------------------------------------------------------
+
+[ 루트 화면 라우팅 — App.tsx screen 상태 ]
+
+  screen = 'home'    → HomeScreen (탭바 포함)
+  screen = 'vocab'   → VocabListScreen (단어장 전체 목록)
+  screen = 'album'   → AlbumDetailScreen (앨범 상세 — 선택된 앨범 곡목록)
+  screen = 'search'  → SearchScreen (음악 검색 + 플레이리스트 저장)
+
+[ 플레이어 오버레이 — PlayerScreen ]
+  - 항상 App.tsx 루트에 절대위치로 렌더링
+  - playerExpanded = true → 풀스크린 슬라이드 업
+  - playerExpanded = false → 미니 플레이어 바로 수축 (Animated.spring)
+
+[ 하단 탭바 — HomeScreen 내부 tab 상태 ]
+  tab = 'home'     → 홈 탭
+  tab = 'library'  → 나의 보관함 탭 (LibraryTab)
+  tab = 'search'   → 검색 탭 (SearchScreen으로 이동)
+  tab = 'quiz'     → QuizScreen
+
+[ HomeScreen 내부 서브 페이지 ]
+  showRecent = true         → RecentScreen (최근 재생 전체 목록)
+  showLibPage = 'liked'     → 즐겨찾기 전체 목록 (LibraryGridPage)
+  showLibPage = 'playlist'  → 플레이리스트 전체 목록 (LibraryGridPage)
+  showLibrary = true        → LibraryTab (나의 보관함 탭)
+
+
+■ 3. 각 화면 상세 기능
+-----------------------------------------------------------------
+
+▶ 3-1. 홈 화면 (HomeScreen / tab='home')
+
+  [ 상단 ]
+  - Google 로그인 배너 (비로그인) / 사용자 이름 + 실시간 동기화 표시 (로그인)
+  - 헤더: "K-POP ENGLISH / POP ENGLISH"  + 단어장 버튼(AB 아이콘)
+  - 검색바 (터치 → SearchScreen 이동)
+
+  [ 나의 보관함 섹션 ]
+  - 섹션 타이틀 터치 → 나의 보관함 탭으로 이동
+  - 즐겨찾기 카드 + 플레이리스트 카드 → 가로 스와이프 (ScrollView snapToInterval)
+    · 즐겨찾기 카드 (고정 너비 270px)
+      - 배경: 최신 1~4곡 앨범아트 분할 표시 (없으면 gradient)
+      - 하단: "★ 즐겨찾기 / N곡"
+      - 터치 → showLibPage = 'liked'
+    · 플레이리스트 카드 (가로 auto = 가용 너비 전체)
+      - 상단: "저장된 음악 / 플레이리스트 / N앨범 · N곡"
+      - 본문: 앨범 이미지 5열×2행 = 최대 10앨범 (앨범별 1장, 중복 제거)
+              이미지 크기 자동 계산 = (카드너비 - 패딩 - 간격) / 5
+      - 터치 → showLibPage = 'playlist'
+
+  [ 최근 재생한 음악 섹션 ] (기록 없으면 숨김)
+  - 수평 스크롤 카드 목록
+  - 섹션 타이틀 터치 → RecentScreen (전체 최근 재생 목록)
+
+  [ 추천 앨범 섹션 ]
+  - iTunes 인기 앨범 수평 스크롤 카드
+  - 카드 터치 → AlbumDetailScreen
+
+  [ 전체 앨범 섹션 ]
+  - 앨범 이름 목록 (전체 앨범)
+  - "전체 보기" → AllAlbumsScreen
+
+▶ 3-2. 나의 보관함 탭 (LibraryTab)
+
+  [ 플레이리스트 섹션 ]
+  - AlbumDropdownList: 앨범별 그룹 드롭다운
+    · 1곡 앨범: 앨범아트 + 곡명 + 재생시간 플랫 행
+    · 2곡 이상: 앨범아트 + 앨범명 + 곡수 헤더 → 탭하면 펼침/접힘
+  - 편집 버튼 → 편집 모드 (곡별 X 삭제 버튼 표시)
+  - Firestore 동기화 수신 시 자동 갱신 (kpop_playlist_synced 이벤트)
+
+  [ 즐겨찾기 섹션 ]
+  - 즐겨찾기한 곡 목록 (별 아이콘)
+  - 곡 선택 → 플레이어 재생
+
+▶ 3-3. 검색 화면 (SearchScreen)
+
+  [ 검색 방식 ]
+  - iTunes Search API (KR 우선 + US 폴백, 순차 조회)
+    · KR: ?country=KR&lang=ko_KR&limit=50
+    · US: ?country=US&limit=50
+    · 중복 제거 후 합산
+  - 결과 없으면 lrclib.net 폴백 (곡명 기반)
+  - 동일 곡명+아티스트 중복 제거 (baseTrackName 정규화)
+
+  [ 검색 결과 표시 ]
+  - 앨범별 그룹화 → AlbumGroup 섹션 헤더 + 곡 목록
+  - 앨범 일괄 추가 버튼 (그룹 헤더 우측)
+  - 곡별: 앨범아트 / 곡명 / 아티스트 / 재생시간 / ▶ 재생 / + 저장
+
+  [ 플레이리스트 저장 ]
+  - + 버튼 → YouTube 검색 (캐시 우선) + 가사 캐시 저장 → addToPlaylist()
+  - 이미 저장된 곡: + → X (표시 변경, 재터치 시 삭제)
+  - 앨범 일괄 추가: 미저장 곡만 순차 저장
+  - Firestore 동기화 (로그인 시 자동)
+
+▶ 3-4. 플레이어 (PlayerScreen)
+
+  [ 플레이어 모드 전환 ]
+  - 음악 선택 시:
+    1. audioPlayer (iTunes 미리보기 30초) 즉시 재생
+    2. YouTube 검색 (localStorage 7일 캐시 → API → Invidious 폴백)
+    3. YouTube 재생 시작되면 audioPlayer 정지 → YouTube로 전환
+  - playerModeRef: 'audio' | 'youtube'
+
+  [ 플레이어 UI — 일반 모드 ]
+  - 앨범아트 (재생 중 scale 1.0, 정지 0.88 애니메이션)
+  - 곡명 / 아티스트 / 즐겨찾기 별 버튼
+  - 진행바 (scrubbing 가능)
+  - 재생 컨트롤: 셔플 / 이전 / 재생-정지 / 다음 / 반복 (off/one/all)
+  - 볼륨 슬라이더 (ytSetVolume + audioSetVolume 동시 적용, localStorage 저장)
+  - 하단 툴바: 가사보기 / 싱크 오프셋 (−/0/+) / 대기열
+
+  [ 가사 모드 (showLyrics=true) ]
+  - 가사 전체 화면 (fade+slide 전환 애니메이션)
+  - 헤더: 닫기 / 미니 앨범아트 + 곡명 / 즐겨찾기
+  - 현재 재생 가사 라인: 단어별 하이라이트 (지난/현재/미래 색상 구분)
+  - 자동 스크롤: 현재 라인이 뷰 중앙에 오도록 (scrollViewHeight 측정)
+  - 탭: 싱크 오프셋 조정 (currentMs - lineStartMs)
+  - 두 번 탭: 번역 카드 표시
+    · 원문 + 한국어 번역 (translateToKorean)
+    · 영어 단어 칩 → 탭 시 단어 뜻 카드 (VocabCard)
+    · 번역 카드는 lyricsScrollArea 밖 (lyricsView 레벨)에서 렌더링
+      → overflow:hidden 영향 없이 항상 화면 위에 표시
+  - 하단 컨트롤: compact Controls (진행바 + 재생 버튼)
+
+  [ 스와이프 제스처 ]
+  - 위로 스와이프 → 풀스크린 플레이어
+  - 아래로 스와이프 / 뒤로 버튼 → 미니 플레이어 (Animated.spring)
+
+▶ 3-5. 단어장 (VocabListScreen)
+
+  - 저장된 단어 목록 (Firebase Firestore users/{uid}/data/vocab)
+  - 단어 뜻 / 예문 / 출처 곡명 표시
+  - 퀴즈 연동: 저장 단어로 퀴즈 출제
+
+▶ 3-6. 퀴즈 (QuizScreen)
+
+  - 저장 단어 기반 영어 → 한국어 뜻 맞추기
+  - 보기 4개 (랜덤)
+
+▶ 3-7. 앨범 상세 (AlbumDetailScreen)
+
+  - 선택 앨범의 전체 곡 목록
+  - 전체 재생 / 랜덤 재생 버튼
+  - 곡 선택 → 플레이어 재생
+
+
+■ 4. 데이터 저장 / 동기화
+-----------------------------------------------------------------
+
+  [ 저장 항목 및 방식 ]
+
+  항목            | 비로그인         | 로그인 (Firestore)
+  ----------------|------------------|----------------------------------
+  즐겨찾기        | localStorage     | users/{uid}.likedIds (onSnapshot)
+  단어장          | localStorage     | users/{uid}/data/vocab (onSnapshot)
+  최근 재생       | localStorage     | users/{uid}/data/recent (최대 20곡)
+  플레이리스트    | localStorage     | users/{uid}/data/playlist
+  YouTube 캐시    | localStorage     | 없음 (기기별 캐시, 7일 TTL)
+  가사 캐시       | localStorage     | 없음
+
+  [ 첫 로그인 데이터 보호 ]
+  - Firestore 값이 비어 있으면(items.length === 0) localStorage 데이터를
+    Firestore에 업로드 (로컬 데이터 유실 방지)
+  - Firestore에 데이터가 있으면 Firestore → localStorage 덮어쓰기
+
+  [ 실시간 동기화 ]
+  - onSnapshot으로 다른 기기 변경사항 즉시 반영
+  - kpop_playlist_synced 커스텀 이벤트로 각 화면 컴포넌트에 갱신 알림
+
+
+■ 5. 음악 검색 / 재생 흐름
+-----------------------------------------------------------------
+
+  검색 → iTunes KR + US API → 중복 제거 → 앨범 그룹화 → 결과 표시
+         ↳ 결과 없으면 lrclib.net 폴백
+
+  곡 선택 → playTrack()
+    1. playerModeRef = 'audio'
+    2. audioLoadAndPlay(previewUrl)  ← 즉시 재생 (저장 볼륨 적용)
+    3. searchYouTube(track, artist)  ← localStorage 캐시 확인 → API
+    4. videoId 있으면: ytLoadVideo(videoId)  ← YouTube IFrame 재생
+    5. YT_STATE.PLAYING 시: ytUnMute() + audioPause()
+
+  볼륨 조절
+    - VolumeBar 슬라이더 변경 → ytSetVolume(v) + audioSetVolume(v) 동시 적용
+    - audioLoadAndPlay() 호출 시 localStorage 저장 볼륨 자동 적용
+    - localStorage 키: 'kpop_volume'
+
+
+■ 6. 플레이리스트 저장 흐름
+-----------------------------------------------------------------
+
+  검색 결과 → + 버튼 탭
+    1. YouTube 검색 (캐시 → API)
+    2. 가사 검색 (lrclib.net) → localStorage 캐시
+    3. addToPlaylist(track, videoId)
+       → localStorage 'kpop_my_playlist' 저장
+       → _firestoreSaver?.(items)  ← 로그인 시 Firestore 자동 동기화
+    4. 검색 화면 플레이리스트 아이콘 변경 (+ → X)
+
+  보관함 표시 (나의 보관함 탭 / LibraryTab)
+    - AlbumDropdownList: 앨범별 그룹 드롭다운
+    - 편집 → X 버튼으로 곡 단위 삭제
+
+  홈 화면 플레이리스트 카드
+    - 앨범 이미지: 앨범별 1장 (중복 제거), 최대 10앨범, 5열×2행
+    - 카운트: "N앨범 · N곡" (전체 저장 곡 수 기준)
+
+
+■ 7. 가사 / 번역 / 단어장 연동
+-----------------------------------------------------------------
+
+  가사 로드: lrclib.net API (LRC 싱크 포함)
+  - 검색 저장 시 가사 캐시 (localStorage)
+  - 가사 없으면 "가사를 불러오는 중..." 표시
+
+  가사 보기 중 상호작용
+  - 한 번 탭: 해당 라인 시간으로 싱크 오프셋 보정
+  - 두 번 탭: 번역 카드 표시 (한국어 번역 + 영단어 칩)
+  - 단어 칩 탭: VocabCard (단어 뜻 + 예문)
+  - VocabCard에서 저장 → Firestore/localStorage 단어장 저장
+
+
+■ 8. 설정 (SettingsScreen)
+-----------------------------------------------------------------
+
+  - 로그인 / 로그아웃
+  - 가사 싱크 오프셋 초기화
+  - 캐시 초기화
+
+
+=================================================================
+END

@@ -3,23 +3,26 @@ import {
   View, Text, TouchableOpacity, StyleSheet,
   Dimensions, Animated, PanResponder, StatusBar,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, spacing, borderRadius } from '../theme';
 import { Track, LyricLine, VocabEntry } from '../types';
 import VocabCard from '../components/VocabCard';
-import LyricsView from '../components/LyricsView';
+import LyricsView, { TranslationCard, TranslationCardProps } from '../components/LyricsView';
 import Icon from '../components/Icon';
 import { ytSetVolume, ytGetVolume } from '../services/youtubePlayer';
+import { audioSetVolume } from '../services/audioPlayer';
 
 const { width, height: SCREEN_H } = Dimensions.get('window');
-const ART_SIZE = Math.min(width - 56, SCREEN_H * 0.38);
+const ART_SIZE = Math.min(width - 56, SCREEN_H * 0.36);
 const OFFSET_STEP = 1000;
 
 type RepeatMode = 'off' | 'one' | 'all';
 
 interface Props {
+  expanded: boolean;
   track: Track;
   lyrics: LyricLine[];
   isPlaying: boolean;
@@ -92,6 +95,7 @@ function VolumeBar() {
         const v = Number(e.target.value);
         setVol(v);
         ytSetVolume(v);
+        audioSetVolume(v);
       }}
       style={{
         flex: 1, height: 4, cursor: 'pointer',
@@ -114,6 +118,7 @@ interface ControlsProps {
   hasLyrics: boolean;
   showLyrics: boolean;
   showRemaining: boolean;
+  compact?: boolean;
   onSeek: (ms: number) => void;
   onToggleShuffle: () => void;
   onPrev: () => void;
@@ -128,7 +133,7 @@ interface ControlsProps {
 
 function Controls({
   currentMs, durationMs, isPlaying, shuffleMode, repeatMode,
-  lyricsOffset, hasLyrics, showLyrics, showRemaining,
+  lyricsOffset, hasLyrics, showLyrics, showRemaining, compact,
   onSeek, onToggleShuffle, onPrev, onPlayPause, onNext, onToggleRepeat,
   onLyricsOffsetChange, onBack, setShowLyrics, setShowRemaining,
 }: ControlsProps) {
@@ -139,7 +144,7 @@ function Controls({
   const offsetLabel = lyricsOffset === 0 ? '싱크' : lyricsOffset > 0 ? `+${lyricsOffset / 1000}s` : `${lyricsOffset / 1000}s`;
 
   return (
-    <View style={styles.controlsBlock}>
+    <View style={[styles.controlsBlock, compact && styles.controlsBlockCompact]}>
       {/* 진행 바 */}
       <View style={styles.progressWrap}>
         <ProgressBar value={currentMs} max={durationMs} onChange={onSeek} />
@@ -190,8 +195,7 @@ function Controls({
           onPress={() => hasLyrics && setShowLyrics(!showLyrics)}
           activeOpacity={0.7}
         >
-          <Icon name="lyrics" size={18} color={showLyrics ? '#000' : (hasLyrics ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.25)')} />
-          <Text style={[styles.toolbarLabel, showLyrics && styles.toolbarLabelActive]}>가사</Text>
+          <Icon name="lyrics" size={32} color={showLyrics ? '#000' : (hasLyrics ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.25)')} />
         </TouchableOpacity>
 
         {hasLyrics && (
@@ -217,8 +221,7 @@ function Controls({
         )}
 
         <TouchableOpacity style={styles.toolbarBtn} onPress={onBack} activeOpacity={0.7}>
-          <Icon name="queue" size={18} color="rgba(255,255,255,0.7)" />
-          <Text style={styles.toolbarLabel}>목록</Text>
+          <Icon name="queue" size={32} color="rgba(255,255,255,0.7)" />
         </TouchableOpacity>
       </View>
     </View>
@@ -226,45 +229,70 @@ function Controls({
 }
 
 export default function PlayerScreen({
-  track, lyrics, isPlaying, currentMs, durationMs,
+  expanded, track, lyrics, isPlaying, currentMs, durationMs,
   lyricsOffset, shuffleMode, repeatMode, isLiked,
   onLyricsOffsetChange, onPlayPause, onNext, onPrev, onSeek,
   onToggleShuffle, onToggleRepeat, onToggleLike, onBack,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const [showLyrics, setShowLyrics] = useState(false);
   const [activeVocab, setActiveVocab] = useState<VocabEntry | null>(null);
   const [showRemaining, setShowRemaining] = useState(true);
+  const [lyricsTranslation, setLyricsTranslation] = useState<TranslationCardProps | null>(null);
 
-  /* ── 슬라이드 업 (등장 애니메이션) ── */
-  const slideIn = useRef(new Animated.Value(SCREEN_H)).current;
+  /* ── 슬라이드 업/다운 (expanded 기반) ── */
+  const playerY = useRef(new Animated.Value(SCREEN_H)).current;
+
   useEffect(() => {
-    Animated.spring(slideIn, {
-      toValue: 0, tension: 68, friction: 12, useNativeDriver: true,
-    }).start();
-  }, []);
+    if (expanded) {
+      Animated.spring(playerY, {
+        toValue: 0, tension: 68, friction: 12, useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.spring(playerY, {
+        toValue: SCREEN_H, tension: 68, friction: 12, useNativeDriver: true,
+      }).start();
+    }
+  }, [expanded]);
 
   /* ── 스와이프 다운 (닫기) ── */
-  const swipeY = useRef(new Animated.Value(0)).current;
   const panRef = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, { dy, dx }) =>
         dy > 8 && Math.abs(dy) > Math.abs(dx) * 1.5,
       onPanResponderMove: (_, { dy }) => {
-        if (dy > 0) swipeY.setValue(dy);
+        if (dy > 0) playerY.setValue(dy);
       },
       onPanResponderRelease: (_, { dy, vy }) => {
         if (dy > 110 || vy > 1.0) {
-          Animated.spring(swipeY, {
+          Animated.spring(playerY, {
             toValue: SCREEN_H, tension: 60, friction: 12, useNativeDriver: true,
-          }).start(() => onBack());
+          }).start(({ finished }) => {
+            if (finished) { playerY.setValue(SCREEN_H); onBack(); }
+          });
         } else {
-          Animated.spring(swipeY, {
+          Animated.spring(playerY, {
             toValue: 0, tension: 120, friction: 14, useNativeDriver: true,
           }).start();
         }
       },
     })
   ).current;
+
+  /* ── 가사 전환 애니메이션 (0=플레이어, 1=가사) ── */
+  const lyricsAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.spring(lyricsAnim, {
+      toValue: showLyrics ? 1 : 0,
+      tension: 72, friction: 14,
+      useNativeDriver: true,
+    }).start();
+  }, [showLyrics]);
+
+  const playerOpacity = lyricsAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
+  const playerSlideY  = lyricsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 24] });
+  const lyricsOpacity = lyricsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
+  const lyricsSlideY  = lyricsAnim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] });
 
   /* ── 앨범 아트 스케일 (재생 여부) ── */
   const artScale = useRef(new Animated.Value(isPlaying ? 1.0 : 0.88)).current;
@@ -292,18 +320,63 @@ export default function PlayerScreen({
     <Animated.View
       style={[
         styles.container,
-        { transform: [{ translateY: Animated.add(slideIn, swipeY) }] },
+        { transform: [{ translateY: playerY }] },
       ]}
+      pointerEvents={expanded ? 'auto' : 'none'}
     >
       <StatusBar barStyle="light-content" />
 
       {/* 배경: albumArt가 바뀔 때만 재렌더 */}
       <PlayerBackground albumArt={track.albumArt} />
 
-      {/* ── 가사 모드 ── */}
-      {showLyrics && hasLyrics ? (
-        <>
-          <View style={styles.lyricsHeader}>
+      {/* ── 일반 플레이어 모드 (가사 전환 시 fade+slide out) ── */}
+      <Animated.View
+        style={[styles.playerView, { opacity: playerOpacity, transform: [{ translateY: playerSlideY }] }]}
+        pointerEvents={showLyrics ? 'none' : 'box-none'}
+      >
+        <View {...panRef.panHandlers} style={[styles.topArea, { paddingTop: insets.top + 14 }]}>
+          <View style={styles.dragHandle} />
+          <View style={styles.header}>
+            <TouchableOpacity onPress={onBack} style={styles.headerIconBtn}>
+              <Icon name="chevron-down" size={24} color="rgba(255,255,255,0.7)" />
+            </TouchableOpacity>
+            <View style={styles.headerTitleBlock} />
+            <View style={styles.headerIconBtn} />
+          </View>
+        </View>
+
+        <View style={styles.artSection}>
+          <Animated.View style={[styles.artShadow, { transform: [{ scale: artScale }] }]}>
+            <Image source={{ uri: track.albumArt }} style={styles.albumArt} contentFit="cover" />
+          </Animated.View>
+        </View>
+
+        <View style={styles.infoSection}>
+          <View style={styles.infoRow}>
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={styles.songTitle} numberOfLines={1}>{track.name}</Text>
+              <Text style={styles.artistName} numberOfLines={1}>{track.artists.join(', ')}</Text>
+            </View>
+            <TouchableOpacity onPress={onToggleLike} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <Icon
+                name={isLiked ? 'star-fill' : 'star'}
+                size={26}
+                color={isLiked ? '#FFD700' : 'rgba(255,255,255,0.55)'}
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <Controls {...controlsProps} />
+      </Animated.View>
+
+      {/* ── 가사 모드 (가사 전환 시 fade+slide in) ── */}
+      {hasLyrics && (
+        <Animated.View
+          style={[styles.lyricsView, { opacity: lyricsOpacity, transform: [{ translateY: lyricsSlideY }] }]}
+          pointerEvents={showLyrics ? 'box-none' : 'none'}
+        >
+          <View style={[styles.lyricsHeader, { paddingTop: insets.top + 12 }]}>
             <TouchableOpacity onPress={() => setShowLyrics(false)} style={styles.lyricsHeaderBtn}>
               <Icon name="chevron-down" size={22} color="#fff" />
             </TouchableOpacity>
@@ -315,67 +388,43 @@ export default function PlayerScreen({
               </View>
             </View>
             <TouchableOpacity onPress={onToggleLike} style={styles.lyricsHeaderBtn}>
-              <Icon name={isLiked ? 'heart-fill' : 'heart'} size={20} color={isLiked ? colors.primary : 'rgba(255,255,255,0.6)'} />
+              <Icon name={isLiked ? 'star-fill' : 'star'} size={20} color={isLiked ? '#FFD700' : 'rgba(255,255,255,0.6)'} />
             </TouchableOpacity>
           </View>
 
-          <View style={{ flex: 1, overflow: 'hidden' }}>
+          <View style={styles.lyricsScrollArea}>
             <LyricsView
               lyrics={lyrics}
               currentLineIndex={currentLine}
               currentMs={adjMs}
               onWordPress={setActiveVocab}
               onLineSyncPress={(lineStartMs) => onLyricsOffsetChange(currentMs - lineStartMs)}
+              onTranslationChange={setLyricsTranslation}
+            />
+            {/* 아래쪽 가사가 컨트롤 영역으로 사라지는 gradient fade */}
+            <LinearGradient
+              colors={['transparent', 'rgba(0,0,0,0.92)']}
+              style={styles.lyricsFade}
+              pointerEvents="none"
             />
           </View>
 
-          <Controls {...controlsProps} />
-        </>
-      ) : (
-        /* ── 일반 플레이어 모드 ── */
-        <>
-          <View {...panRef.panHandlers} style={styles.topArea}>
-            <View style={styles.dragHandle} />
-            <View style={styles.header}>
-              <TouchableOpacity onPress={onBack} style={styles.headerIconBtn}>
-                <Icon name="chevron-down" size={26} color="#fff" />
-              </TouchableOpacity>
-
-              <View style={styles.headerTitleBlock}>
-                <Text style={styles.headerLabel}>지금 재생 중</Text>
-                <Text style={styles.headerAlbum} numberOfLines={1}>{track.album}</Text>
-              </View>
-
-              <TouchableOpacity style={styles.headerIconBtn}>
-                <Icon name="ellipsis" size={22} color="#fff" />
-              </TouchableOpacity>
-            </View>
+          <View style={styles.lyricsControlsArea}>
+            <Controls {...controlsProps} compact />
           </View>
 
-          <View style={styles.artSection}>
-            <Animated.View style={[styles.artShadow, { transform: [{ scale: artScale }] }]}>
-              <Image source={{ uri: track.albumArt }} style={styles.albumArt} contentFit="cover" />
-            </Animated.View>
-          </View>
-
-          <View style={styles.infoSection}>
-            <View style={styles.infoRow}>
-              <View style={{ flex: 1, marginRight: 12 }}>
-                <Text style={styles.songTitle} numberOfLines={1}>{track.name}</Text>
-                <Text style={styles.artistName} numberOfLines={1}>{track.artists.join(', ')}</Text>
-              </View>
-              <TouchableOpacity onPress={onToggleLike} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-                <Icon
-                  name={isLiked ? 'heart-fill' : 'heart'}
-                  size={26}
-                  color={isLiked ? colors.primary : 'rgba(255,255,255,0.55)'}
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <Controls {...controlsProps} />
-        </>
+          {/* 번역 카드 — lyricsScrollArea 밖에서 렌더링 (overflow:hidden 영향 없음) */}
+          {lyricsTranslation && (
+            <>
+              <TouchableOpacity
+                style={StyleSheet.absoluteFillObject}
+                onPress={lyricsTranslation.onClose}
+                activeOpacity={1}
+              />
+              <TranslationCard {...lyricsTranslation} />
+            </>
+          )}
+        </Animated.View>
       )}
 
       {activeVocab && (
@@ -392,7 +441,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
   },
 
-  topArea: { paddingTop: 14 },
+  topArea: {},
   dragHandle: {
     alignSelf: 'center',
     width: 36, height: 5,
@@ -411,13 +460,17 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   headerTitleBlock: { flex: 1, alignItems: 'center' },
+  headerBackText: {
+    fontSize: 22,
+    color: 'rgba(255,255,255,0.7)',
+    fontWeight: '300',
+    lineHeight: 26,
+  },
   headerLabel: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '600',
-    color: 'rgba(255,255,255,0.55)',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 2,
+    color: '#fff',
+    letterSpacing: 0.3,
   },
   headerAlbum: {
     fontSize: 13,
@@ -430,20 +483,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 28,
-    marginVertical: 16,
+    marginTop: 4,
+    marginBottom: 20,
   },
   artShadow: {
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 24 },
-    shadowOpacity: 0.75,
-    shadowRadius: 36,
+    shadowOffset: { width: 0, height: 28 },
+    shadowOpacity: 0.65,
+    shadowRadius: 40,
     elevation: 24,
-    borderRadius: 14,
+    borderRadius: 16,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.18)',
   },
   albumArt: {
     width: ART_SIZE,
     height: ART_SIZE,
-    borderRadius: 14,
+    borderRadius: 16,
   },
 
   infoSection: {
@@ -455,13 +511,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   songTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '700',
     color: '#fff',
-    marginBottom: 4,
+    marginBottom: 5,
   },
   artistName: {
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: '400',
     color: 'rgba(255,255,255,0.6)',
   },
@@ -472,6 +528,29 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
     justifyContent: 'flex-end',
     gap: 16,
+  },
+  controlsBlockCompact: {
+    flex: 0,
+    justifyContent: 'flex-start',
+    paddingTop: 8,
+  },
+
+  lyricsScrollArea: {
+    flex: 1,
+    minHeight: 0,
+    overflow: 'hidden',
+  },
+  lyricsFade: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 72,
+  },
+  lyricsControlsArea: {
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.08)',
   },
   progressWrap: { gap: 6 },
   timeRow: {
@@ -562,7 +641,7 @@ const styles = StyleSheet.create({
   lyricsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 56,
+    paddingTop: 12,
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -585,5 +664,14 @@ const styles = StyleSheet.create({
   },
   lyricsArtistName: {
     fontSize: 12, color: 'rgba(255,255,255,0.6)',
+  },
+
+  playerView: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: 'column',
+  },
+  lyricsView: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: 'column',
   },
 });

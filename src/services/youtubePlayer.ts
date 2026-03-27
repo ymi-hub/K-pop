@@ -45,11 +45,26 @@ export function createYTPlayer(
       });
       document.body.appendChild(el);
     }
+
+    // iframe이 생성되는 즉시 allow="autoplay" 주입 (Chrome autoplay 정책 우회)
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of Array.from(mutation.addedNodes)) {
+          if ((node as Element).tagName === 'IFRAME') {
+            (node as HTMLIFrameElement).setAttribute(
+              'allow', 'autoplay; encrypted-media; fullscreen; picture-in-picture'
+            );
+            observer.disconnect();
+          }
+        }
+      }
+    });
+    observer.observe(el, { childList: true, subtree: true });
+
     player = new window.YT.Player(containerId, {
       height: '1', width: '1',
-      playerVars: { autoplay: 0, controls: 0, playsinline: 1, rel: 0, fs: 0 },
+      playerVars: { autoplay: 1, mute: 1, controls: 0, playsinline: 1, rel: 0, fs: 0 },
       events: {
-        // 시스템 볼륨 그대로 사용 — setVolume(100) + unMute()
         onReady: () => {
           const saved = parseInt(localStorage.getItem('kpop_volume') ?? '100', 10);
           const vol = isNaN(saved) ? 100 : Math.max(0, Math.min(100, saved));
@@ -64,7 +79,10 @@ export function createYTPlayer(
 }
 
 export function ytLoadVideo(videoId: string): void {
-  player?.loadVideoById(videoId);
+  if (!player) return;
+  player.loadVideoById(videoId);
+  // loadVideoById 후 unmute 보장 (mute:1로 생성된 경우 대비)
+  player.unMute();
 }
 
 export function ytPlay(): void {

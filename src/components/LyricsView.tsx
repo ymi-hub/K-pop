@@ -4,16 +4,184 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   StyleSheet,
   Dimensions,
   ActivityIndicator,
+  Animated,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
+import { Ionicons } from '@expo/vector-icons';
 import { getWordDefinition, translateToKorean } from '../services/lyrics';
 import { LyricLine, VocabEntry } from '../types';
 import { colors, spacing, borderRadius } from '../theme';
 
 const { height } = Dimensions.get('window');
+
+/* ── VocabCard 스타일 번역 카드 ── */
+function TranslationCard({ originalText, translatedText, translating, englishWords, onClose, onWordPress }: {
+  originalText: string;
+  translatedText: string;
+  translating: boolean;
+  englishWords: string[];
+  onClose: () => void;
+  onWordPress: (vocab: VocabEntry) => void;
+}) {
+  const slideAnim = useRef(new Animated.Value(300)).current;
+
+  useEffect(() => {
+    slideAnim.setValue(300);
+    Animated.spring(slideAnim, {
+      toValue: 0, tension: 65, friction: 11, useNativeDriver: true,
+    }).start();
+  }, []);
+
+  return (
+    <Animated.View style={[tcStyles.container, { transform: [{ translateY: slideAnim }] }]}>
+      <BlurView intensity={85} tint="dark" style={tcStyles.blur}>
+        {/* 헤더 */}
+        <Text style={tcStyles.headerLabel}>번역</Text>
+
+        {translating ? (
+          <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 12 }} />
+        ) : (
+          <>
+            {/* 원문 */}
+            <View style={tcStyles.originalBox}>
+              <Text style={tcStyles.boxLabel}>ORIGINAL</Text>
+              <Text style={tcStyles.originalText}>{originalText}</Text>
+            </View>
+
+            {/* 한국어 번역 */}
+            <View style={tcStyles.koreanBox}>
+              <Text style={tcStyles.boxLabel}>한국어</Text>
+              <Text style={tcStyles.koreanText}>{translatedText}</Text>
+            </View>
+
+            {/* 단어 칩 */}
+            {englishWords.length > 0 && (
+              <View style={tcStyles.chipRow}>
+                {englishWords.map((word, i) => (
+                  <TouchableOpacity
+                    key={i}
+                    style={tcStyles.chip}
+                    onPress={async () => {
+                      const vocab = await getWordDefinition(word);
+                      if (vocab) onWordPress(vocab);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={tcStyles.chipText}>{word}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* 닫기 버튼 — 하단 중앙 */}
+            <TouchableOpacity onPress={onClose} style={tcStyles.closeBtn} activeOpacity={0.7}>
+              <Text style={tcStyles.closeBtnText}>닫기</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </BlurView>
+    </Animated.View>
+  );
+}
+
+const tcStyles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    bottom: 10,
+    left: spacing.md,
+    right: spacing.md,
+    borderRadius: borderRadius.xl,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  blur: { padding: spacing.lg, paddingTop: 20, gap: 10 },
+  headerLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.45)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  originalBox: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+  },
+  koreanBox: {
+    backgroundColor: 'rgba(252,60,68,0.12)',
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(252,60,68,0.25)',
+  },
+  boxLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textTertiary,
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  originalText: {
+    fontSize: 18,
+    fontWeight: '400',
+    color: 'rgba(255,255,255,0.75)',
+    lineHeight: 26,
+  },
+  koreanText: {
+    fontSize: 18,
+    fontWeight: '400',
+    color: '#FFFFFF',
+    lineHeight: 26,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chip: {
+    backgroundColor: 'rgba(252,60,68,0.15)',
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: borderRadius.full,
+  },
+  chipText: {
+    fontSize: 18,
+    fontWeight: '400',
+    color: colors.primary,
+  },
+  closeBtn: {
+    alignSelf: 'center',
+    marginTop: 4,
+    paddingHorizontal: 32,
+    paddingVertical: 9,
+    borderRadius: borderRadius.full,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  closeBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.55)',
+  },
+});
+
+export interface TranslationCardProps {
+  originalText: string;
+  translatedText: string;
+  translating: boolean;
+  englishWords: string[];
+  onClose: () => void;
+  onWordPress: (vocab: VocabEntry) => void;
+}
 
 interface Props {
   lyrics: LyricLine[];
@@ -21,10 +189,14 @@ interface Props {
   currentMs: number;
   onWordPress: (vocab: VocabEntry) => void;
   onLineSyncPress?: (lineStartMs: number) => void;
+  onTranslationChange?: (data: TranslationCardProps | null) => void;
 }
 
-export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWordPress, onLineSyncPress }: Props) {
+export { TranslationCard };
+
+export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWordPress, onLineSyncPress, onTranslationChange }: Props) {
   const scrollRef = useRef<ScrollView>(null);
+  const scrollHeightRef = useRef(height * 0.4);
   const [translatedIdx, setTranslatedIdx] = useState<number | null>(null);
   const [translatedText, setTranslatedText] = useState('');
   const [translating, setTranslating] = useState(false);
@@ -34,9 +206,16 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
     timer: ReturnType<typeof setTimeout>;
   } | null>(null);
 
+  // 실제 행 높이: paddingVertical(10*2) + lineHeight(44) + marginBottom(4) = 68px
+  const ROW_H = 68;
+
   useEffect(() => {
-    if (currentLineIndex > 0) {
-      const y = currentLineIndex * 76 - height * 0.25;
+    if (currentLineIndex >= 0) {
+      // 상단 여백(hint + padding) 약 56px
+      const topOffset = 56;
+      const lineY = topOffset + currentLineIndex * ROW_H;
+      // 현재 행이 스크롤 뷰 중앙에 오도록
+      const y = lineY - scrollHeightRef.current / 2 + ROW_H / 2;
       scrollRef.current?.scrollTo({ y: Math.max(0, y), animated: true });
     }
   }, [currentLineIndex]);
@@ -48,10 +227,14 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
       pendingRef.current = null;
       if (translatedIdx === idx) {
         setTranslatedIdx(null); setTranslatedText('');
+        onTranslationChange?.(null);
       } else {
         setTranslatedIdx(idx); setTranslatedText(''); setTranslating(true);
+        const words = line.words.map(w => w.text.replace(/[^a-zA-Z]/g, '')).filter(w => w.length >= 2);
+        onTranslationChange?.({ originalText: line.text, translatedText: '', translating: true, englishWords: words, onClose: closeTranslation, onWordPress });
         translateToKorean(line.text).then(r => {
           setTranslatedText(r); setTranslating(false);
+          onTranslationChange?.({ originalText: line.text, translatedText: r, translating: false, englishWords: words, onClose: closeTranslation, onWordPress });
         });
       }
       return;
@@ -66,7 +249,7 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
     // 280ms 대기 후 단일 탭 처리
     const timer = setTimeout(() => {
       pendingRef.current = null;
-      if (translatedIdx !== null) { setTranslatedIdx(null); setTranslatedText(''); }
+      if (translatedIdx !== null) { setTranslatedIdx(null); setTranslatedText(''); onTranslationChange?.(null); }
       onLineSyncPress?.(line.startMs);
     }, 280);
 
@@ -79,6 +262,7 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
       pendingRef.current = null;
     }
     setTranslatedIdx(null); setTranslatedText('');
+    onTranslationChange?.(null);
   };
 
   if (lyrics.length === 0) {
@@ -89,11 +273,6 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
     );
   }
 
-  const translatedLine = translatedIdx !== null ? lyrics[translatedIdx] : null;
-  const englishWords = translatedLine
-    ? translatedLine.words.map(w => w.text.replace(/[^a-zA-Z]/g, '')).filter(w => w.length >= 2)
-    : [];
-
   return (
     <View style={{ flex: 1 }}>
       <ScrollView
@@ -101,10 +280,9 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
         style={styles.container}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
+        onLayout={e => { scrollHeightRef.current = e.nativeEvent.layout.height; }}
       >
-        <TouchableWithoutFeedback onPress={closeTranslation}>
-          <View style={{ height: height * 0.08 }} />
-        </TouchableWithoutFeedback>
+        <TouchableOpacity onPress={closeTranslation} activeOpacity={1} style={{ height: height * 0.08 }} />
 
         <Text style={styles.hint}>탭: 싱크 맞추기 · 두 번 탭: 번역 · 단어 탭: 뜻</Text>
 
@@ -149,49 +327,9 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
           );
         })}
 
-        <TouchableWithoutFeedback onPress={closeTranslation}>
-          <View style={{ height: height * 0.3 }} />
-        </TouchableWithoutFeedback>
+        <TouchableOpacity onPress={closeTranslation} activeOpacity={1} style={{ height: height * 0.3 }} />
       </ScrollView>
 
-      {/* ── 번역 오버레이 — 가사 영역 중앙에 고정 ── */}
-      {translatedIdx !== null && (
-        <TouchableWithoutFeedback onPress={closeTranslation}>
-          <View style={styles.overlayBackdrop}>
-            <TouchableWithoutFeedback>
-              <View style={styles.translationCard}>
-                {translating ? (
-                  <ActivityIndicator size="small" color={colors.primary} />
-                ) : (
-                  <>
-                    <Text style={styles.translationKorean}>{translatedText}</Text>
-                    {englishWords.length > 0 && (
-                      <View style={styles.chipRow}>
-                        {englishWords.map((word, i) => (
-                          <TouchableOpacity
-                            key={i}
-                            style={styles.chip}
-                            onPress={async () => {
-                              const vocab = await getWordDefinition(word);
-                              if (vocab) onWordPress(vocab);
-                            }}
-                            activeOpacity={0.7}
-                          >
-                            <Text style={styles.chipText}>{word}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    )}
-                    <TouchableOpacity onPress={closeTranslation} style={styles.closeBtn}>
-                      <Text style={styles.closeBtnText}>닫기</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      )}
     </View>
   );
 }
@@ -221,79 +359,21 @@ const styles = StyleSheet.create({
   },
 
   lineText: {
-    fontSize: 20,
+    fontSize: 32,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.25)',
-    lineHeight: 32,
+    lineHeight: 44,
   },
   lineTextPast: { color: 'rgba(255,255,255,0.45)' },
 
   lineTextActive: {
-    fontSize: 24,
+    fontSize: 32,
     fontWeight: '800',
-    lineHeight: 38,
+    lineHeight: 44,
   },
-  wordBase: { fontSize: 24, fontWeight: '800' },
+  wordBase: { fontSize: 32, fontWeight: '800' },
   wordPast: { color: 'rgba(255,255,255,0.9)' },
   wordCurrent: { color: '#FFFFFF' },
   wordFuture: { color: 'rgba(255,255,255,0.28)' },
 
-  /* ── 번역 오버레이 ── */
-  overlayBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-  },
-  translationCard: {
-    width: '100%',
-    backgroundColor: '#1C1C1E',
-    borderRadius: borderRadius.xl,
-    padding: spacing.lg,
-    gap: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    alignItems: 'center',
-  },
-  translationKorean: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    lineHeight: 32,
-    textAlign: 'center',
-  },
-
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    justifyContent: 'center',
-  },
-  chip: {
-    backgroundColor: 'rgba(252,60,68,0.15)',
-    borderWidth: 1.5,
-    borderColor: colors.primary,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: borderRadius.full,
-  },
-  chipText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.primary,
-  },
-
-  closeBtn: {
-    marginTop: 2,
-    paddingHorizontal: 24,
-    paddingVertical: 8,
-    borderRadius: borderRadius.full,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  closeBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.5)',
-  },
 });

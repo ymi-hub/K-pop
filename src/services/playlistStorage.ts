@@ -3,6 +3,12 @@ import { Track } from '../types';
 const KEY = 'kpop_my_playlist';
 const LYRICS_KEY = 'kpop_cached_lyrics';
 
+// 로그인 시 App.tsx에서 주입 — 저장할 때마다 Firestore에도 반영
+let _firestoreSaver: ((items: PlaylistItem[]) => void) | null = null;
+export function setFirestorePlaylistSaver(fn: ((items: PlaylistItem[]) => void) | null) {
+  _firestoreSaver = fn;
+}
+
 export interface PlaylistItem {
   id: string;
   name: string;
@@ -24,6 +30,7 @@ export function loadPlaylist(): PlaylistItem[] {
 
 export function savePlaylist(items: PlaylistItem[]): void {
   try { localStorage.setItem(KEY, JSON.stringify(items)); } catch {}
+  _firestoreSaver?.(items);
 }
 
 export function addToPlaylist(track: Track, videoId?: string): boolean {

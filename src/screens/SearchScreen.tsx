@@ -15,7 +15,7 @@ import {
   addToPlaylist, removeFromPlaylist,
   cacheLyrics, getCachedLyrics, loadPlaylist,
 } from '../services/playlistStorage';
-import { ytCache } from '../data/btsSongs';
+const ytCache = new Map<string, { videoId: string; thumbnail: string }>();
 
 // Android에서 LayoutAnimation 활성화
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -25,6 +25,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 interface Props {
   onPlayTrack: (track: Track) => void;
   onPlaylistChange: () => void;
+  onBack?: () => void;
 }
 
 interface MusicResult {
@@ -58,16 +59,27 @@ function parseItunesData(data: any): MusicResult[] {
 }
 
 // ── iTunes Search ────────────────────────────────────
-// credentials:'omit' — iOS에서 Apple ID 쿠키 자동 첨부로 인한 CORS 오류 방지
+// getBTSTracks와 동일한 패턴 사용 (KR 우선, US 폴백)
 async function searchItunes(query: string): Promise<MusicResult[]> {
-  const url = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&entity=song&limit=50&country=us`;
+  const base = 'https://itunes.apple.com/search';
   try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8000);
-    const res = await fetch(url, { credentials: 'omit', signal: ctrl.signal });
-    clearTimeout(timer);
-    if (!res.ok) return [];
-    return parseItunesData(await res.json());
+    // KR 먼저
+    const resKR = await fetch(
+      `${base}?term=${encodeURIComponent(query)}&media=music&entity=song&limit=50&country=KR&lang=ko_KR`
+    );
+    const dataKR = resKR.ok ? await resKR.json() : { results: [] };
+    const krItems = parseItunesData(dataKR);
+
+    // US 병렬 없이 순차 조회 (KR과 응답 형식 동일)
+    const resUS = await fetch(
+      `${base}?term=${encodeURIComponent(query)}&media=music&entity=song&limit=50&country=US`
+    );
+    const dataUS = resUS.ok ? await resUS.json() : { results: [] };
+    const usItems = parseItunesData(dataUS);
+
+    // KR 우선, US에서 중복 없는 곡 추가
+    const seen = new Set(krItems.map(r => r.id));
+    return [...krItems, ...usItems.filter(r => !seen.has(r.id))];
   } catch {
     return [];
   }
@@ -140,22 +152,10 @@ function deduplicateTracks(results: MusicResult[]): MusicResult[] {
 }
 
 async function searchMusic(query: string): Promise<MusicResult[]> {
-  // iTunes + lrclib 병렬 조회
-  const [itunes, lrcNames] = await Promise.all([
-    searchItunes(query),
-    fetchLrcNames(query),
-  ]);
-
-  // 이미지 있는 곡만 추림 + 중복 제거
+  // iTunes 조회 (lrclib 필터 제거 — OST 등 lrclib 미등록 곡도 표시)
+  const itunes = await searchItunes(query);
   const withImage = deduplicateTracks(itunes.filter(r => !!r.albumArt));
-  if (withImage.length === 0) return [];
-
-  // lrclib 결과 없으면 이미지 있는 곡 전체 반환
-  if (lrcNames.length === 0) return withImage;
-
-  // lrclib에 매칭되는 곡 우선, 없으면 이미지 있는 전체 반환
-  const matched = withImage.filter(r => hasLyricsMatch(r.name, lrcNames));
-  return matched.length > 0 ? matched : withImage;
+  return withImage;
 }
 
 // ── 앨범별 그룹화 ─────────────────────────────────────
@@ -188,7 +188,7 @@ function fmt(ms: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export default function SearchScreen({ onPlayTrack, onPlaylistChange }: Props) {
+export default function SearchScreen({ onPlayTrack, onPlaylistChange, onBack }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<MusicResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -196,6 +196,14 @@ export default function SearchScreen({ onPlayTrack, onPlaylistChange }: Props) {
   const [inPlaylistIds, setInPlaylistIds] = useState<Set<string>>(
     () => new Set(loadPlaylist().map(t => t.id))
   );
+
+  // Firestore 동기화 후 갱신
+  useEffect(() => {
+    const handler = () => setInPlaylistIds(new Set(loadPlaylist().map((t: any) => t.id)));
+    window.addEventListener('kpop_playlist_synced', handler);
+    return () => window.removeEventListener('kpop_playlist_synced', handler);
+  }, []);
+
   const [addingId, setAddingId] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [justAdded, setJustAdded] = useState<Record<string, boolean>>({});
@@ -279,6 +287,11 @@ export default function SearchScreen({ onPlayTrack, onPlaylistChange }: Props) {
       <StatusBar barStyle="light-content" />
 
       <View style={styles.header}>
+        {onBack && (
+          <TouchableOpacity onPress={onBack} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} style={{ marginRight: 8 }}>
+            <Icon name="chevron-left" size={24} color={colors.primary} />
+          </TouchableOpacity>
+        )}
         <Text style={styles.title}>검색</Text>
       </View>
 
@@ -471,7 +484,7 @@ export default function SearchScreen({ onPlayTrack, onPlaylistChange }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  header: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: 4 },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: 4 },
   title: { fontSize: 30, fontWeight: '800', color: '#fff' },
 
   searchWrap: { paddingHorizontal: spacing.lg, paddingBottom: 10 },

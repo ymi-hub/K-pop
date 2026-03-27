@@ -1,27 +1,38 @@
-import React, { useState, useEffect, useRef, Component, useCallback, memo } from 'react';
+import React, { useState, useEffect, useRef, Component, useCallback } from 'react';
 import { View, Text, ScrollView, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import HomeScreen from './src/screens/HomeScreen';
 import PlayerScreen from './src/screens/PlayerScreen';
 import VocabListScreen from './src/screens/VocabListScreen';
 import LoginScreen from './src/screens/LoginScreen';
-import SettingsScreen from './src/screens/SettingsScreen';
+import AlbumDetailScreen from './src/screens/AlbumDetailScreen';
 import SearchScreen from './src/screens/SearchScreen';
-import QuizScreen from './src/screens/QuizScreen';
-import PlaylistScreen from './src/screens/PlaylistScreen';
 import { loadPlaylist, getCachedLyrics } from './src/services/playlistStorage';
 import MiniPlayer from './src/components/MiniPlayer';
-import TabBar, { TabId, TAB_BAR_H } from './src/components/TabBar';
 import { Track, LyricLine } from './src/types';
 import { getLyrics } from './src/services/lyrics';
 import {
   initYouTubeAPI, createYTPlayer, ytLoadVideo,
   ytPlay, ytPause, ytSeek, ytGetCurrentTime, ytGetDuration, YT_STATE,
 } from './src/services/youtubePlayer';
+import { initAudioPlayer, audioLoadAndPlay, audioPause, audioPlay, audioGetCurrentTime, audioGetDuration } from './src/services/audioPlayer';
 import { searchYouTube } from './src/services/youtubeSearch';
-import { getBTSTracks, ytCache } from './src/data/btsSongs';
+import { getBTSTracks } from './src/services/itunes';
 
-type Screen = 'home' | 'player';
+const ytCache = new Map<string, { videoId: string; thumbnail: string }>();
+import { auth, googleProvider } from './src/config/firebase';
+import {
+  onAuthStateChanged,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  signOut,
+  User,
+} from 'firebase/auth';
+import { subscribeLiked, saveLiked, subscribeRecent, saveRecent, subscribePlaylistItems, savePlaylistItems } from './src/services/syncService';
+import { setFirestorePlaylistSaver } from './src/services/playlistStorage';
+
+type Screen = 'home' | 'vocab' | 'album' | 'search';
 type RepeatMode = 'off' | 'one' | 'all';
 
 const SAFE_AREA_INITIAL = {
@@ -87,33 +98,132 @@ export default function App() {
       return saved ? new Set<string>(JSON.parse(saved)) : new Set<string>();
     } catch { return new Set<string>(); }
   });
-  const [ytReady, setYtReady] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabId>('home');
-  const [recentTracks, setRecentTracks] = useState<Track[]>([]);
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const likedUnsubRef = useRef<(() => void) | null>(null);
+  const recentUnsubRef = useRef<(() => void) | null>(null);
+  const playlistUnsubRef = useRef<(() => void) | null>(null);
+  const userRef = useRef<User | null>(null);
+  const [recentTracks, setRecentTracks] = useState<Track[]>(() => {
+    try {
+      const saved = localStorage.getItem('kpop_recent_tracks');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
   const [showWelcome, setShowWelcome] = useState<boolean>(() => {
     try { return !localStorage.getItem('kpop_visited'); } catch { return false; }
   });
-  const [showPlaylist, setShowPlaylist] = useState(false);
-  const [playlistCount, setPlaylistCount] = useState(() => loadPlaylist().length);
+  const [activeAlbum, setActiveAlbum] = useState<{ name: string; art: string; tracks: Track[] } | null>(null);
+  const [playerExpanded, setPlayerExpanded] = useState(false);
+
+  // ── Firebase Auth ─────────────────────────────────────────
+  useEffect(() => {
+    if (!auth) return;
+    // 모바일 Safari signInWithRedirect 후 결과 처리
+    getRedirectResult(auth).catch(() => {});
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      userRef.current = u;
+      // 기존 구독 해제
+      likedUnsubRef.current?.();
+      recentUnsubRef.current?.();
+      playlistUnsubRef.current?.();
+
+      if (u) {
+        // 좋아요
+        likedUnsubRef.current = subscribeLiked(u.uid, (ids) => {
+          setLikedIds(new Set(ids));
+        });
+        // 최근 재생 — Firestore 데이터 있으면 덮어쓰기, 없으면 로컬 데이터 업로드
+        recentUnsubRef.current = subscribeRecent(u.uid, (tracks) => {
+          if (tracks.length > 0) {
+            setRecentTracks(tracks);
+          } else {
+            try {
+              const raw = localStorage.getItem('kpop_recent_tracks');
+              const local = raw ? JSON.parse(raw) : [];
+              if (local.length > 0) saveRecent(u.uid, local).catch(() => {});
+            } catch {}
+          }
+        });
+        // 플레이리스트 — Firestore 데이터 있으면 localStorage 업데이트,
+        // 없으면 localStorage 데이터를 Firestore에 업로드 (첫 로그인 시 복구)
+        playlistUnsubRef.current = subscribePlaylistItems(u.uid, (items) => {
+          if (items.length > 0) {
+            try { localStorage.setItem('kpop_my_playlist', JSON.stringify(items)); } catch {}
+            window.dispatchEvent(new CustomEvent('kpop_playlist_synced'));
+          } else {
+            try {
+              const raw = localStorage.getItem('kpop_my_playlist');
+              const local = raw ? JSON.parse(raw) : [];
+              if (local.length > 0) savePlaylistItems(u.uid, local).catch(() => {});
+            } catch {}
+          }
+        });
+        setFirestorePlaylistSaver((items) => savePlaylistItems(u.uid, items).catch(() => {}));
+      } else {
+        try {
+          const saved = localStorage.getItem('kpop_liked_ids');
+          setLikedIds(saved ? new Set<string>(JSON.parse(saved)) : new Set());
+        } catch {}
+        setFirestorePlaylistSaver(null);
+      }
+    });
+    return () => {
+      unsub();
+      likedUnsubRef.current?.();
+      recentUnsubRef.current?.();
+      playlistUnsubRef.current?.();
+    };
+  }, []);
+
+  const handleGoogleLogin = async () => {
+    if (!auth) return;
+    setAuthLoading(true);
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (e: any) {
+      if (e.code === 'auth/popup-blocked') {
+        try { await signInWithRedirect(auth, googleProvider); } catch {}
+      } else if (e.code !== 'auth/popup-closed-by-user') {
+        console.error('Login error:', e.code);
+      }
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (!auth) return;
+    await signOut(auth);
+  };
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stateRef = useRef({ currentIndex, playOrder, tracks, repeatMode });
   const handleEndedRef = useRef<() => void>(() => {});
   const isPlayingRef = useRef(false);
+  const ytReadyRef = useRef(false);
+  const playerModeRef = useRef<'audio' | 'youtube'>('audio');
+  const selectByIdxRef = useRef<(idx: number) => Promise<void>>(async () => {});
+
+  // 최근 재생 목록 localStorage + Firestore(로그인 시) 저장
+  useEffect(() => {
+    try { localStorage.setItem('kpop_recent_tracks', JSON.stringify(recentTracks)); } catch {}
+    if (userRef.current) saveRecent(userRef.current.uid, recentTracks).catch(() => {});
+  }, [recentTracks]);
 
   const log = (msg: string) => setInitLog(prev => [...prev.slice(-8), msg]);
 
   // 트랙 로드
   useEffect(() => {
-    try {
-      log('Loading tracks...');
-      const t = getBTSTracks();
-      setTracks(t);
-      setPlayOrder(t.map((_, i) => i));
-      log(`Tracks loaded: ${t.length}`);
-    } catch (e: any) {
-      log(`Track load ERROR: ${e?.message}`);
-    }
+    log('Loading tracks...');
+    getBTSTracks()
+      .then((t) => {
+        setTracks(t);
+        setPlayOrder(t.map((_, i) => i));
+        log(`Tracks loaded: ${t.length}`);
+      })
+      .catch((e: any) => log(`Track load ERROR: ${e?.message}`));
   }, []);
 
   useEffect(() => {
@@ -127,10 +237,10 @@ export default function App() {
       if (mode === 'one') { ytSeek(0); ytPlay(); return; }
       const next = order.indexOf(idx) + 1;
       if (next >= order.length) {
-        if (mode === 'all') selectByIdx(order[0]);
+        if (mode === 'all') selectByIdxRef.current(order[0]);
         else setIsPlaying(false);
       } else {
-        selectByIdx(order[next]);
+        selectByIdxRef.current(order[next]);
       }
     };
   });
@@ -139,11 +249,14 @@ export default function App() {
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     log('Initializing YouTube...');
+    initAudioPlayer(() => {});
     initYouTubeAPI()
       .then(() => {
         log('YT API ready, creating player...');
         return createYTPlayer((state) => {
           if (state === YT_STATE.PLAYING) {
+            audioPause(); // iTunes 프리뷰 중지
+            playerModeRef.current = 'youtube';
             setIsPlaying(true);
             const d = ytGetDuration();
             if (d > 0) setDurationMs(d);
@@ -154,24 +267,26 @@ export default function App() {
           }
         });
       })
-      .then(() => { log('YT player ready'); setYtReady(true); })
+      .then(() => { log('YT player ready'); ytReadyRef.current = true; })
       .catch((e: any) => log(`YT init ERROR: ${e?.message}`));
   }, []);
 
-  // PlayerScreen이 열려있을 때만 타이머 가동 (MiniPlayer는 자체 타이머 보유)
+  // 재생 중 타이머 — YouTube 우선, 없으면 iTunes audio fallback
   useEffect(() => {
-    if (!isPlaying || screen !== 'player') {
+    if (!isPlaying) {
       if (timerRef.current) clearInterval(timerRef.current);
       return;
     }
     timerRef.current = setInterval(() => {
-      const ms = ytGetCurrentTime();
+      const ytMs = ytGetCurrentTime();
+      const ms = ytMs > 0 ? ytMs : audioGetCurrentTime();
       setCurrentMs(prev => (Math.abs(ms - prev) > 300 ? ms : prev));
-      const d = ytGetDuration();
+      const ytDur = ytGetDuration();
+      const d = ytDur > 0 ? ytDur : audioGetDuration();
       if (d > 0) setDurationMs(prev => (d !== prev ? d : prev));
-    }, 1000);
+    }, 500);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [isPlaying, screen]);
+  }, [isPlaying]);
 
   const selectByIdx = async (idx: number) => {
     const track = stateRef.current.tracks[idx];
@@ -182,43 +297,45 @@ export default function App() {
       return [track, ...filtered].slice(0, 15);
     });
     setCurrentIndex(idx);
-    setScreen('player');
+    setPlayerExpanded(true);
     setIsPlaying(false);
     setCurrentMs(0);
     setDurationMs(track.durationMs);
     setLyricsOffset(0);
+    playerModeRef.current = 'audio';
     getLyrics(track.name, track.artists[0]).then(setLyrics).catch(() => setLyrics([]));
-    if (Platform.OS !== 'web' || !ytReady) return;
+    // iTunes 프리뷰 즉시 재생 (YouTube 로드 전 fallback)
+    if (track.previewUrl) { audioLoadAndPlay(track.previewUrl); setIsPlaying(true); }
+    if (Platform.OS !== 'web' || !ytReadyRef.current) return;
     const cached = ytCache.get(track.id);
     if (cached) { updateArt(idx, cached.thumbnail); ytLoadVideo(cached.videoId); return; }
     const result = await searchYouTube(track.name, track.artists[0]);
     if (result) { ytCache.set(track.id, result); updateArt(idx, result.thumbnail); ytLoadVideo(result.videoId); }
   };
+  selectByIdxRef.current = selectByIdx;
 
   const updateArt = (idx: number, thumb: string) => {
     setTracks(prev => { const n = [...prev]; n[idx] = { ...n[idx], albumArt: thumb }; return n; });
     setCurrentTrack(prev => prev ? { ...prev, albumArt: thumb } : prev);
   };
 
-  const handleSelectTrack = useCallback((track: Track) => {
-    const idx = tracks.findIndex(t => t.id === track.id);
-    if (idx !== -1) selectByIdx(idx);
-  }, [tracks]);
-
   // 외부(Deezer 검색) 트랙 포함 범용 재생 핸들러
   const handleSelectAnyTrack = useCallback(async (track: Track) => {
-    const idx = tracks.findIndex(t => t.id === track.id);
-    if (idx !== -1) { selectByIdx(idx); return; }
+    const idx = stateRef.current.tracks.findIndex(t => t.id === track.id);
+    if (idx !== -1) { selectByIdxRef.current(idx); return; }
 
     // 외부 트랙
     setCurrentTrack(track);
     setRecentTracks(prev => [track, ...prev.filter(t => t.id !== track.id)].slice(0, 15));
-    setScreen('player');
+    setPlayerExpanded(true);
     setIsPlaying(false);
     setCurrentMs(0);
     setDurationMs(track.durationMs || 0);
     setLyricsOffset(0);
+    playerModeRef.current = 'audio';
 
+    // iTunes 프리뷰 즉시 재생
+    if (track.previewUrl) { audioLoadAndPlay(track.previewUrl); setIsPlaying(true); }
     // 가사: 캐시 → 실시간 조회
     const cachedLyrics = getCachedLyrics(track.id);
     if (cachedLyrics) {
@@ -227,7 +344,7 @@ export default function App() {
       getLyrics(track.name, track.artists[0]).then(setLyrics).catch(() => setLyrics([]));
     }
 
-    if (Platform.OS !== 'web' || !ytReady) return;
+    if (Platform.OS !== 'web' || !ytReadyRef.current) return;
 
     // videoId: ytCache(메모리) → playlist에 저장된 videoId → YouTube 검색
     let videoId: string | undefined = ytCache.get(track.id)?.videoId;
@@ -240,24 +357,31 @@ export default function App() {
       if (result) { ytCache.set(track.id, result); videoId = result.videoId; }
     }
     if (videoId) ytLoadVideo(videoId);
-  }, [tracks, ytReady]);
+  }, []);
 
   const handlePlayPause = useCallback(() => {
-    if (isPlayingRef.current) { ytPause(); setIsPlaying(false); }
-    else { ytPlay(); setIsPlaying(true); }
+    if (isPlayingRef.current) {
+      ytPause();
+      audioPause();
+      setIsPlaying(false);
+    } else {
+      if (playerModeRef.current === 'youtube') ytPlay();
+      else audioPlay();
+      setIsPlaying(true);
+    }
   }, []);
 
   const handleNext = useCallback(() => {
     const { currentIndex: idx, playOrder: order, repeatMode: mode } = stateRef.current;
     if (mode === 'one') { ytSeek(0); ytPlay(); return; }
-    selectByIdx(order[(order.indexOf(idx) + 1) % order.length]);
+    selectByIdxRef.current(order[(order.indexOf(idx) + 1) % order.length]);
   }, []);
 
   const handlePrev = useCallback(() => {
     const ms = ytGetCurrentTime();
     if (ms > 3000) { ytSeek(0); return; }
     const { currentIndex: idx, playOrder: order } = stateRef.current;
-    selectByIdx(order[(order.indexOf(idx) - 1 + order.length) % order.length]);
+    selectByIdxRef.current(order[(order.indexOf(idx) - 1 + order.length) % order.length]);
   }, []);
 
   const handleSeek = useCallback((ms: number) => { ytSeek(ms); setCurrentMs(ms); }, []);
@@ -282,26 +406,30 @@ export default function App() {
     const id = typeof trackId === 'string' ? trackId : currentTrack?.id;
     if (!id) return;
     setLikedIds(prev => {
-      let next: Set<string>;
-      if (prev.has(id)) {
-        next = new Set([...prev].filter(x => x !== id));
+      const next = prev.has(id)
+        ? new Set([...prev].filter(x => x !== id))
+        : new Set([id, ...prev]);
+      const ids = [...next];
+      if (user) {
+        saveLiked(user.uid, ids).catch(() => {});
       } else {
-        next = new Set([id, ...prev]); // 최신 항목 맨 앞
+        try { localStorage.setItem('kpop_liked_ids', JSON.stringify(ids)); } catch {}
       }
-      try { localStorage.setItem('kpop_liked_ids', JSON.stringify([...next])); } catch {}
       return next;
     });
-  }, [currentTrack?.id]);
+  }, [currentTrack?.id, user]);
 
-  const handlePlaylistChange = useCallback(() => setPlaylistCount(loadPlaylist().length), []);
-  const handleVocabPress = useCallback(() => setActiveTab('vocab'), []);
-  const handleOpenQuiz = useCallback(() => setActiveTab('quiz'), []);
-  const handleOpenPlaylist = useCallback(() => setShowPlaylist(true), []);
-  const handleClosePlaylist = useCallback(() => setShowPlaylist(false), []);
-  const handleOpenPlayer = useCallback(() => setScreen('player'), []);
+  const handleOpenAlbum = useCallback((name: string, art: string, albumTracks: Track[]) => {
+    setActiveAlbum({ name, art, tracks: albumTracks });
+    setScreen('album');
+  }, []);
+
+  const handleBackFromAlbum = useCallback(() => {
+    setScreen('home');
+  }, []);
+
   const handleBackToHome = useCallback(() => setScreen('home'), []);
-  const handleTabHome = useCallback(() => setActiveTab('home'), []);
-  const handleOpenLibrary = useCallback(() => setActiveTab('library'), []);
+  const handleOpenPlayer = useCallback(() => setPlayerExpanded(true), []);
 
   const handleWelcomeStart = () => {
     try { localStorage.setItem('kpop_visited', '1'); } catch {}
@@ -332,11 +460,65 @@ export default function App() {
     );
   }
 
-  if (screen === 'player' && currentTrack) {
-    return (
-      <ErrorBoundary>
-        <SafeAreaProvider initialMetrics={SAFE_AREA_INITIAL}>
+  return (
+    <ErrorBoundary>
+      <SafeAreaProvider initialMetrics={SAFE_AREA_INITIAL}>
+        {/* Base layer: current screen */}
+        {screen === 'vocab' ? (
+          <VocabListScreen uid={user?.uid ?? null} tracks={tracks} onBack={handleBackToHome} onQuizPress={handleBackToHome} />
+        ) : screen === 'search' ? (
+          <SearchScreen
+            onPlayTrack={handleSelectAnyTrack}
+            onPlaylistChange={() => {}}
+            onBack={handleBackToHome}
+          />
+        ) : screen === 'album' && activeAlbum ? (
+          <AlbumDetailScreen
+            album={activeAlbum}
+            currentTrack={currentTrack}
+            isPlaying={isPlaying}
+            onBack={handleBackFromAlbum}
+            onSelectTrack={handleSelectAnyTrack}
+            onPlayAll={() => { if (activeAlbum.tracks[0]) handleSelectAnyTrack(activeAlbum.tracks[0]); }}
+            onShuffleAll={() => {
+              const shuffled = shuffleArray(activeAlbum.tracks);
+              if (shuffled[0]) handleSelectAnyTrack(shuffled[0]);
+            }}
+          />
+        ) : (
+          <HomeScreen
+            tracks={tracks}
+            currentTrack={currentTrack}
+            isPlaying={isPlaying}
+            likedIds={likedIds}
+            recentTracks={recentTracks}
+            onSelectTrack={handleSelectAnyTrack}
+            onToggleLike={handleToggleLike}
+            onOpenAlbum={handleOpenAlbum}
+            onVocabPress={() => setScreen('vocab')}
+            onSearchPress={() => setScreen('search')}
+            user={user}
+            authLoading={authLoading}
+            onLogin={handleGoogleLogin}
+            onLogout={handleLogout}
+          />
+        )}
+
+        {/* MiniPlayer — always visible when track loaded, covered by PlayerScreen when expanded */}
+        {currentTrack && (
+          <MiniPlayer
+            track={currentTrack}
+            isPlaying={isPlaying}
+            onPress={handleOpenPlayer}
+            onPlayPause={handlePlayPause}
+            onNext={handleNext}
+          />
+        )}
+
+        {/* PlayerScreen overlay — always mounted when track exists, slides up/down */}
+        {currentTrack && (
           <PlayerScreen
+            expanded={playerExpanded}
             track={currentTrack}
             lyrics={lyrics}
             isPlaying={isPlaying}
@@ -354,62 +536,9 @@ export default function App() {
             onToggleShuffle={handleToggleShuffle}
             onToggleRepeat={handleToggleRepeat}
             onToggleLike={handleToggleLike}
-            onBack={handleBackToHome}
-          />
-        </SafeAreaProvider>
-      </ErrorBoundary>
-    );
-  }
-
-  return (
-    <ErrorBoundary>
-      <SafeAreaProvider initialMetrics={SAFE_AREA_INITIAL}>
-        {activeTab === 'vocab' ? (
-          <VocabListScreen uid={null} tracks={tracks} onBack={handleTabHome} onQuizPress={handleOpenQuiz} />
-        ) : activeTab === 'settings' ? (
-          <SettingsScreen onBack={handleTabHome} />
-        ) : activeTab === 'search' ? (
-          <SearchScreen
-            onPlayTrack={handleSelectAnyTrack}
-            onPlaylistChange={handlePlaylistChange}
-          />
-        ) : activeTab === 'quiz' ? (
-          <QuizScreen onBack={handleTabHome} hasMiniPlayer={!!currentTrack} />
-        ) : (
-          <HomeScreen
-            activeTab={activeTab}
-            tracks={tracks}
-            currentTrack={currentTrack}
-            isPlaying={isPlaying}
-            likedIds={likedIds}
-            recentTracks={recentTracks}
-            onSelectTrack={handleSelectAnyTrack}
-            onToggleLike={handleToggleLike}
-            onVocabPress={handleVocabPress}
-            playlistCount={playlistCount}
-            onOpenPlaylist={handleOpenPlaylist}
-            onOpenLibrary={handleOpenLibrary}
+            onBack={() => setPlayerExpanded(false)}
           />
         )}
-        {showPlaylist && (
-          <PlaylistScreen
-            currentTrack={currentTrack}
-            isPlaying={isPlaying}
-            onSelectTrack={handleSelectAnyTrack}
-            onBack={handleClosePlaylist}
-            onPlaylistChange={handlePlaylistChange}
-          />
-        )}
-        {currentTrack && (
-          <MiniPlayer
-            track={currentTrack}
-            isPlaying={isPlaying}
-            onPress={handleOpenPlayer}
-            onPlayPause={handlePlayPause}
-            onNext={handleNext}
-          />
-        )}
-        <TabBar active={activeTab} onChange={setActiveTab} />
       </SafeAreaProvider>
     </ErrorBoundary>
   );

@@ -7,10 +7,10 @@ import {
   Animated,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { Ionicons } from '@expo/vector-icons';
 import { VocabEntry } from '../types';
 import { colors, spacing, borderRadius } from '../theme';
 import { saveWord, isWordSaved } from '../services/vocabStorage';
+import Icon from './Icon';
 
 interface Props {
   vocab: VocabEntry;
@@ -65,8 +65,8 @@ export default function VocabCard({ vocab, songName, onClose }: Props) {
               disabled={saved}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Ionicons
-                name={saved ? 'bookmark' : 'bookmark-outline'}
+              <Icon
+                name={saved ? 'bookmark-fill' : 'bookmark'}
                 size={20}
                 color={saved ? colors.primary : colors.textSecondary}
               />
@@ -79,7 +79,7 @@ export default function VocabCard({ vocab, songName, onClose }: Props) {
               onPress={onClose}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Ionicons name="close-circle" size={26} color={colors.textTertiary} />
+              <Icon name="close" size={22} color={colors.textTertiary} />
             </TouchableOpacity>
           </View>
         </View>
@@ -108,7 +108,6 @@ export default function VocabCard({ vocab, songName, onClose }: Props) {
         {/* 예문 */}
         {vocab.example ? (
           <View style={styles.exampleBox}>
-            <Ionicons name="chatbubble-outline" size={13} color={colors.textTertiary} />
             <Text style={styles.example}>{vocab.example}</Text>
           </View>
         ) : null}
@@ -135,7 +134,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   wordRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  word: { fontSize: 24, fontWeight: '800', color: colors.text },
+  word: { fontSize: 24, fontWeight: '400', color: colors.text },
   badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: borderRadius.full },
   badgeText: { fontSize: 10, fontWeight: '700' },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -159,7 +158,7 @@ const styles = StyleSheet.create({
     fontSize: 11, color: colors.primary, fontWeight: '700',
     marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.8,
   },
-  koreanMeaning: { fontSize: 20, fontWeight: '700', color: colors.text, lineHeight: 26 },
+  koreanMeaning: { fontSize: 24, fontWeight: '400', color: colors.text, lineHeight: 32 },
   meaningBox: { backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: borderRadius.md, padding: spacing.md },
   meaningLabel: {
     fontSize: 11, color: colors.textTertiary, fontWeight: '600',

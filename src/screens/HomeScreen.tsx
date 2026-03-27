@@ -14,8 +14,8 @@ import { BlurView } from 'expo-blur';
 import { colors, spacing, borderRadius } from '../theme';
 import { Track } from '../types';
 import Icon from '../components/Icon';
-import { TabId } from '../components/TabBar';
 import { loadPlaylist, PlaylistItem, removeFromPlaylist } from '../services/playlistStorage';
+import { User } from 'firebase/auth';
 
 const { width } = Dimensions.get('window');
 const FEAT_W = width * 0.72;
@@ -78,7 +78,6 @@ function fmt(ms: number) {
 
 /* ── props ── */
 interface Props {
-  activeTab: TabId;
   tracks: Track[];
   currentTrack: Track | null;
   isPlaying: boolean;
@@ -86,10 +85,13 @@ interface Props {
   recentTracks: Track[];
   onSelectTrack: (track: Track) => void;
   onToggleLike: (id: string) => void;
+  onOpenAlbum: (name: string, art: string, tracks: Track[]) => void;
   onVocabPress?: () => void;
-  playlistCount?: number;
-  onOpenPlaylist?: () => void;
-  onOpenLibrary?: () => void;
+  onSearchPress?: () => void;
+  user?: User | null;
+  authLoading?: boolean;
+  onLogin?: () => void;
+  onLogout?: () => void;
 }
 
 /* ═══════════════════════════════════════════════
@@ -251,9 +253,12 @@ function AlbumDropdownList({ tracks, currentTrack, isPlaying, likedIds, onSelect
           {active && isPlaying ? '▶' : idx + 1}
         </Text>
         <View style={styles.dropTrackInfo}>
-          <Text style={[styles.dropTrackName, active && { color: colors.primary }]} numberOfLines={1}>
-            {item.name}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            {liked && <Icon name="star-fill" size={9} color="#FFD700" />}
+            <Text style={[styles.dropTrackName, active && { color: colors.primary }, { flex: 1 }]} numberOfLines={1}>
+              {item.name}
+            </Text>
+          </View>
           <Text style={styles.dropTrackDur}>{fmt(item.durationMs)}</Text>
         </View>
         {onToggleLike && (
@@ -263,9 +268,9 @@ function AlbumDropdownList({ tracks, currentTrack, isPlaying, likedIds, onSelect
             style={styles.dropLikeBtn}
           >
             <Icon
-              name={liked ? 'heart-fill' : 'heart'}
+              name={liked ? 'star-fill' : 'star'}
               size={15}
-              color={liked ? colors.primary : 'rgba(255,255,255,0.22)'}
+              color={liked ? '#FFD700' : 'rgba(255,255,255,0.22)'}
             />
           </TouchableOpacity>
         )}
@@ -319,7 +324,7 @@ function AlbumDropdownList({ tracks, currentTrack, isPlaying, likedIds, onSelect
                         hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
                         style={styles.dropLikeBtn}
                       >
-                        <Icon name={liked ? 'heart-fill' : 'heart'} size={15} color={liked ? colors.primary : 'rgba(255,255,255,0.22)'} />
+                        <Icon name={liked ? 'star-fill' : 'star'} size={15} color={liked ? '#FFD700' : 'rgba(255,255,255,0.22)'} />
                       </TouchableOpacity>
                       {editMode && onDelete && (
                         <TouchableOpacity
@@ -371,11 +376,10 @@ function AlbumDropdownList({ tracks, currentTrack, isPlaying, likedIds, onSelect
 }
 
 /* ── 2열 그리드 전체 페이지 ─────────────────────────── */
-const GRID2_PAD = 16;
-const GRID2_GAP = 10;
-const GRID2_W = (width - GRID2_PAD * 2 - GRID2_GAP) / 2;
+const GRID2_GAP = 2;
+const GRID2_W = (width - GRID2_GAP) / 2;
 
-function LibraryGridPage({ title, items, currentTrack, isPlaying, onSelect, onBack, onPlayAll, onShuffleAll }: {
+function LibraryGridPage({ title, items, currentTrack, isPlaying, onSelect, onBack, onPlayAll, onShuffleAll, likedIds }: {
   title: string;
   items: { id: string; name: string; artists: string[]; albumArt: string }[];
   currentTrack: Track | null;
@@ -384,13 +388,14 @@ function LibraryGridPage({ title, items, currentTrack, isPlaying, onSelect, onBa
   onBack: () => void;
   onPlayAll?: () => void;
   onShuffleAll?: () => void;
+  likedIds?: Set<string>;
 }) {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       {/* 헤더 */}
       <View style={libGridStyles.header}>
         <TouchableOpacity onPress={onBack} style={libGridStyles.backBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <Icon name="chevron-down" size={20} color={colors.primary} style={{ transform: [{ rotate: '90deg' }] }} />
+          <Icon name="chevron-left" size={22} color={colors.primary} />
           <Text style={libGridStyles.backText}>뒤로</Text>
         </TouchableOpacity>
         <Text style={libGridStyles.title}>{title}</Text>
@@ -399,7 +404,7 @@ function LibraryGridPage({ title, items, currentTrack, isPlaying, onSelect, onBa
 
       {items.length === 0 ? (
         <View style={styles.empty}>
-          <Icon name="musical-note" size={52} color={colors.textTertiary} />
+          <Icon name="star" size={52} color={colors.textTertiary} />
           <Text style={styles.emptyText}>항목이 없습니다</Text>
         </View>
       ) : (
@@ -424,6 +429,7 @@ function LibraryGridPage({ title, items, currentTrack, isPlaying, onSelect, onBa
           }
           renderItem={({ item }) => {
             const active = currentTrack?.id === item.id;
+            const isLiked = likedIds?.has(item.id);
             return (
               <TouchableOpacity style={libGridStyles.item} onPress={() => onSelect(item)} activeOpacity={0.8}>
                 <View style={libGridStyles.artWrap}>
@@ -437,8 +443,16 @@ function LibraryGridPage({ title, items, currentTrack, isPlaying, onSelect, onBa
                   {active && isPlaying && (
                     <View style={libGridStyles.overlay}><Icon name="musical-note" size={24} color="#fff" /></View>
                   )}
+                  {isLiked && !active && (
+                    <View style={libGridStyles.starBadge}>
+                      <Icon name="star-fill" size={11} color="#FFD700" />
+                    </View>
+                  )}
                 </View>
-                <Text style={[libGridStyles.name, active && { color: colors.primary }]} numberOfLines={2}>{item.name}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 2 }}>
+                  {isLiked && <Icon name="star-fill" size={9} color="#FFD700" />}
+                  <Text style={[libGridStyles.name, active && { color: colors.primary }, { flex: 1 }]} numberOfLines={2}>{item.name}</Text>
+                </View>
                 <Text style={libGridStyles.artist} numberOfLines={1}>{item.artists.join(', ')}</Text>
               </TouchableOpacity>
             );
@@ -458,10 +472,10 @@ const libGridStyles = StyleSheet.create({
   backText: { fontSize: 16, color: colors.primary, fontWeight: '500' },
   title: { flex: 1, fontSize: 17, fontWeight: '700', color: '#fff', textAlign: 'center' },
   count: { width: 60, fontSize: 12, color: colors.textTertiary, textAlign: 'right' },
-  grid: { paddingHorizontal: GRID2_PAD, paddingTop: 0, paddingBottom: TAB_MINI_OFFSET },
+  grid: { paddingHorizontal: 0, paddingTop: 0, paddingBottom: TAB_MINI_OFFSET },
   actionRow: {
     flexDirection: 'row', gap: 12,
-    marginBottom: 16,
+    marginBottom: 16, paddingHorizontal: 16,
   },
   actionBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
@@ -470,12 +484,17 @@ const libGridStyles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.12)',
   },
   actionText: { fontSize: 15, fontWeight: '700', color: '#fff' },
-  item: { width: GRID2_W },
+  item: { width: GRID2_W, paddingHorizontal: 6, paddingBottom: 4 },
   artWrap: { position: 'relative', marginBottom: 8 },
-  art: { width: GRID2_W, height: GRID2_W, borderRadius: 12 },
+  art: { width: GRID2_W - 12, height: GRID2_W - 12, borderRadius: 10 },
   artPlaceholder: { backgroundColor: 'rgba(255,255,255,0.07)', alignItems: 'center', justifyContent: 'center' },
-  overlay: { ...StyleSheet.absoluteFillObject, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' },
-  name: { fontSize: 13, fontWeight: '600', color: '#fff', lineHeight: 18, marginBottom: 2 },
+  overlay: { ...StyleSheet.absoluteFillObject, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' },
+  starBadge: {
+    position: 'absolute', top: 6, right: 6,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 10, padding: 3,
+  },
+  name: { fontSize: 13, fontWeight: '600', color: '#fff', lineHeight: 18 },
   artist: { fontSize: 12, color: colors.textTertiary },
 });
 
@@ -539,10 +558,31 @@ const previewStyles = StyleSheet.create({
   artist: { fontSize: 11, color: colors.textTertiary },
 });
 
+/* ── 추천 앨범 카드 스타일 ── */
+const ALBUM_CARD_W = 148;
+const albumCardStyles = StyleSheet.create({
+  card: { width: ALBUM_CARD_W },
+  art: { width: ALBUM_CARD_W, height: ALBUM_CARD_W, borderRadius: 12, marginBottom: 8 },
+  name: { fontSize: 13, fontWeight: '600', color: '#fff', marginBottom: 3, lineHeight: 18 },
+  count: { fontSize: 11, color: colors.textTertiary },
+});
+
+/* ── 전체 앨범 목록 행 스타일 ── */
+const albumListStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: spacing.lg, paddingVertical: 10, gap: 12,
+  },
+  thumb: { width: 52, height: 52, borderRadius: 8 },
+  info: { flex: 1 },
+  name: { fontSize: 14, fontWeight: '600', color: '#fff', marginBottom: 3 },
+  meta: { fontSize: 12, color: colors.textTertiary },
+});
+
 /* ═══════════════════════════════════════════════
    홈 탭 — Apple Music 스타일 홈 페이지
 ══════════════════════════════════════════════ */
-function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSelectTrack, onToggleLike, onVocabPress, onOpenPlaylist, onOpenLibrary }: {
+function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSelectTrack, onToggleLike, onVocabPress, onOpenAlbum, user, authLoading, onLogin, onLogout, onSearchPress }: {
   tracks: Track[];
   currentTrack: Track | null;
   isPlaying: boolean;
@@ -551,11 +591,16 @@ function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSe
   onSelectTrack: (t: Track) => void;
   onToggleLike: (id: string) => void;
   onVocabPress?: () => void;
-  onOpenPlaylist?: () => void;
-  onOpenLibrary?: () => void;
+  onOpenAlbum: (name: string, art: string, tracks: Track[]) => void;
+  user?: User | null;
+  authLoading?: boolean;
+  onLogin?: () => void;
+  onLogout?: () => void;
+  onSearchPress?: () => void;
 }) {
   const [showRecent, setShowRecent] = useState(false);
   const [showLibPage, setShowLibPage] = useState<'liked' | 'playlist' | null>(null);
+  const [showLibrary, setShowLibrary] = useState(false);
   const [playlist, setPlaylist] = useState<PlaylistItem[]>(() => loadPlaylist());
 
   const likedTracks = useMemo(() => {
@@ -564,6 +609,18 @@ function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSe
     return [...likedIds].filter(id => trackMap.has(id)).map(id => trackMap.get(id)!);
   }, [tracks, playlist, likedIds]);
   const recent = recentTracks.length > 0 ? recentTracks : tracks.slice(0, 12);
+  const albums = useMemo(() => {
+    const map = new Map<string, Track[]>();
+    for (const t of tracks) {
+      if (!map.has(t.album)) map.set(t.album, []);
+      map.get(t.album)!.push(t);
+    }
+    return Array.from(map.entries()).map(([title, albumTracks]) => ({
+      title,
+      art: albumTracks[0]?.albumArt ?? '',
+      tracks: albumTracks,
+    }));
+  }, [tracks]);
 
   if (showRecent) {
     const recentFull = recentTracks.length > 0 ? recentTracks : tracks.slice(0, 20);
@@ -578,6 +635,20 @@ function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSe
     );
   }
 
+  if (showLibrary) {
+    return (
+      <LibraryTab
+        tracks={tracks}
+        currentTrack={currentTrack}
+        isPlaying={isPlaying}
+        likedIds={likedIds}
+        onSelectTrack={onSelectTrack}
+        onToggleLike={onToggleLike}
+        onBack={() => setShowLibrary(false)}
+      />
+    );
+  }
+
   if (showLibPage === 'liked') {
     return (
       <LibraryGridPage
@@ -585,6 +656,7 @@ function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSe
         items={likedTracks}
         currentTrack={currentTrack}
         isPlaying={isPlaying}
+        likedIds={likedIds}
         onSelect={(t) => { onSelectTrack(t); setShowLibPage(null); }}
         onBack={() => setShowLibPage(null)}
         onPlayAll={() => { if (likedTracks[0]) { onSelectTrack(likedTracks[0]); setShowLibPage(null); } }}
@@ -619,190 +691,180 @@ function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSe
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingBottom: TAB_MINI_OFFSET }}
     >
+      {/* 계정 배너 */}
+      {user ? (
+        <View style={styles.authBanner}>
+          {user.photoURL ? (
+            <Image source={{ uri: user.photoURL }} style={styles.authAvatar} contentFit="cover" />
+          ) : (
+            <View style={styles.authAvatarPlaceholder}>
+              <Text style={styles.authAvatarText}>{user.displayName?.[0] ?? '?'}</Text>
+            </View>
+          )}
+          <Text style={styles.authName} numberOfLines={1}>{user.displayName}</Text>
+          <View style={styles.syncDot} />
+          <Text style={styles.syncLabel}>실시간 동기화 중</Text>
+          <TouchableOpacity onPress={onLogout} style={styles.authLogoutBtn}>
+            <Text style={styles.authLogoutText}>로그아웃</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={styles.authLoginBtn}
+          onPress={onLogin}
+          disabled={authLoading}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.googleIcon}>G</Text>
+          <Text style={styles.authLoginText}>
+            {authLoading ? '로그인 중...' : 'Google로 로그인 — 모든 기기 동기화'}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {/* 헤더 */}
       <View style={styles.homeHeader}>
-        <TouchableOpacity onPress={() => { setShowRecent(false); setShowLibPage(null); }} activeOpacity={0.7}>
-          <Text style={styles.homeTitle}>K-POP English</Text>
+        <TouchableOpacity onPress={() => { setShowRecent(false); setShowLibPage(null); }} activeOpacity={0.7} style={{ flex: 1 }}>
+          <Text style={styles.homeSubtitle}>K-POP ENGLISH</Text>
+          <Text style={styles.homeTitle}>POP ENGLISH</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={onVocabPress} style={styles.vocabBtn} hitSlop={{top:8,bottom:8,left:8,right:8}}>
-          <Icon name="book" size={26} color="rgba(255,255,255,0.85)" />
-          <Text style={styles.vocabBtnLabel}>단어장</Text>
+          <View style={styles.vocabIconBox}>
+            <Text style={styles.vocabIconText}>AB</Text>
+            <Icon name="search" size={11} color="#fff" style={styles.vocabIconSearch} />
+          </View>
         </TouchableOpacity>
       </View>
 
-      {/* ── 보관함 (즐겨찾기 + 플레이리스트 Apple Music 카드) ── */}
-      <View style={styles.section}>
-        <TouchableOpacity style={styles.sectionNavRow} onPress={onOpenLibrary} activeOpacity={0.7}>
-          <Text style={[styles.sectionTitle, { paddingHorizontal: 0, marginBottom: 0 }]}>보관함</Text>
-          <Icon name="chevron-right" size={14} color={colors.textTertiary} />
-        </TouchableOpacity>
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={[
-            { key: 'liked', label: '즐겨찾기', sublabel: '나만을 위한', items: likedTracks, onPress: () => setShowLibPage('liked') },
-            { key: 'playlist', label: '플레이리스트', sublabel: '저장된 음악', items: playlist as any[], onPress: () => setShowLibPage('playlist') },
-          ]}
-          keyExtractor={d => d.key}
-          contentContainerStyle={styles.hListPad}
-          snapToInterval={FEAT_W + 12}
-          decelerationRate="fast"
-          renderItem={({ item: d }) => {
-            // ── 즐겨찾기: Apple Music 인기 추천곡 스타일 (콜라주 배경 + 하단 타이틀)
-            if (d.key === 'liked') {
-              const arts = d.items.slice(0, 4).map((t: any) => t.albumArt).filter(Boolean);
-              return (
-                <TouchableOpacity style={stationCardStyles.card} onPress={d.onPress} activeOpacity={0.88}>
-                  {arts.length >= 4 ? (
-                    <View style={[StyleSheet.absoluteFillObject, { overflow: 'hidden' }]}>
-                      <View style={stationCardStyles.collageRow}>
-                        <Image source={{ uri: arts[0] }} style={stationCardStyles.collageCell} contentFit="cover" />
-                        <Image source={{ uri: arts[1] }} style={stationCardStyles.collageCell} contentFit="cover" />
-                      </View>
-                      <View style={stationCardStyles.collageRow}>
-                        <Image source={{ uri: arts[2] }} style={stationCardStyles.collageCell} contentFit="cover" />
-                        <Image source={{ uri: arts[3] }} style={stationCardStyles.collageCell} contentFit="cover" />
-                      </View>
-                    </View>
-                  ) : arts.length > 0 ? (
-                    <Image source={{ uri: arts[0] }} style={[StyleSheet.absoluteFillObject, { borderRadius: 18 }]} contentFit="cover" />
-                  ) : (
-                    <LinearGradient
-                      colors={['#2d0845', '#160a38', '#070720']}
-                      locations={[0, 0.55, 1]}
-                      style={StyleSheet.absoluteFillObject}
-                    />
-                  )}
-                  <LinearGradient
-                    colors={['rgba(0,0,0,0.0)', 'rgba(0,0,0,0.78)']}
-                    locations={[0.3, 1]}
-                    style={[StyleSheet.absoluteFillObject, { borderRadius: 18 }]}
-                  />
-                  {/* 빈 상태: 중앙 애니메이션 */}
-                  {arts.length === 0 && (
-                    <View style={stationCardStyles.emptyCenter}>
-                      <AnimatedMusicBars barColor="rgba(220,100,130,0.95)" />
-                      <Text style={stationCardStyles.emptyCenterTitle}>즐겨찾기</Text>
-                      <Text style={stationCardStyles.emptyCenterSub}>재생 화면의 ♥ 버튼으로{'\n'}좋아하는 곡을 저장하세요</Text>
-                    </View>
-                  )}
-                  {arts.length > 0 && (
-                    <View style={stationCardStyles.likedBottom}>
-                      <Text style={stationCardStyles.sublabel}>{d.sublabel}</Text>
-                      <Text style={stationCardStyles.likedLabel}>{d.label}</Text>
-                      <Text style={stationCardStyles.count}>{d.items.length}곡</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            }
+      {/* 검색바 */}
+      <TouchableOpacity style={styles.searchBar} onPress={onSearchPress} activeOpacity={0.85}>
+        <Text style={styles.searchPlaceholder}>아티스트 · 노래 · 앨범 검색</Text>
+        <View style={styles.searchBtn}>
+          <Icon name="search" size={17} color="#fff" />
+        </View>
+      </TouchableOpacity>
 
-            // ── 플레이리스트: 3×2 그리드
-            const six = d.items.slice(0, 6);
-            return (
-              <View style={stationCardStyles.cardPadded}>
-                <TouchableOpacity style={stationCardStyles.header} onPress={d.onPress} activeOpacity={0.7}>
-                  <View>
-                    <Text style={stationCardStyles.sublabel}>{d.sublabel}</Text>
-                    <Text style={stationCardStyles.label}>{d.label}</Text>
+      {/* ── 나의 보관함 ── */}
+      <View style={styles.section}>
+        <TouchableOpacity style={styles.sectionNavRow} onPress={() => setShowLibrary(true)} activeOpacity={0.7}>
+          <Text style={[styles.sectionTitle, { paddingHorizontal: 0, marginBottom: 0 }]}>나의 보관함</Text>
+          <Icon name="chevron-right" size={16} color={colors.textTertiary} />
+        </TouchableOpacity>
+
+        {/* 즐겨찾기 + 플레이리스트 — 같은 라인, 좌우 스와이프 */}
+        {(() => {
+          const seenAlbums = new Set<string>();
+          const uniqueAlbums: { albumArt: string; album: string; hasActive: boolean }[] = [];
+          for (const item of playlist) {
+            if (!seenAlbums.has(item.album)) {
+              seenAlbums.add(item.album);
+              const hasActive = playlist.some((p: any) => p.album === item.album && currentTrack?.id === p.id);
+              uniqueAlbums.push({ albumArt: item.albumArt, album: item.album, hasActive });
+            }
+          }
+          const columns: typeof uniqueAlbums[] = [];
+          for (let i = 0; i < uniqueAlbums.length; i += 2) columns.push(uniqueAlbums.slice(i, i + 2));
+
+          return (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              snapToInterval={CARD_W + LC_GAP}
+              decelerationRate="fast"
+              contentContainerStyle={{ paddingHorizontal: LC_PAD, gap: LC_GAP, paddingBottom: 4 }}
+              style={{ marginTop: 4 }}
+            >
+              {/* 즐겨찾기 카드 */}
+              <TouchableOpacity
+                style={[libCardsStyles.card, { width: CARD_W, height: CARD_H }]}
+                onPress={() => setShowLibPage('liked')}
+                activeOpacity={0.88}
+              >
+                {likedTracks.length === 1 ? (
+                  <Image source={{ uri: likedTracks[0].albumArt }} style={[StyleSheet.absoluteFillObject, { borderRadius: 14 }]} contentFit="cover" />
+                ) : likedTracks.length === 2 ? (
+                  <View style={[StyleSheet.absoluteFillObject, { overflow: 'hidden', borderRadius: 14, flexDirection: 'row' }]}>
+                    <Image source={{ uri: likedTracks[0].albumArt }} style={{ flex: 1 }} contentFit="cover" />
+                    <Image source={{ uri: likedTracks[1].albumArt }} style={{ flex: 1 }} contentFit="cover" />
                   </View>
-                  <View style={stationCardStyles.headerRight}>
-                    <Text style={stationCardStyles.count}>{d.items.length}곡</Text>
-                    <Icon name="chevron-right" size={14} color="rgba(255,255,255,0.45)" />
+                ) : likedTracks.length === 3 ? (
+                  <View style={[StyleSheet.absoluteFillObject, { overflow: 'hidden', borderRadius: 14 }]}>
+                    <View style={{ flex: 1, flexDirection: 'row' }}>
+                      <Image source={{ uri: likedTracks[0].albumArt }} style={{ flex: 1 }} contentFit="cover" />
+                      <Image source={{ uri: likedTracks[1].albumArt }} style={{ flex: 1 }} contentFit="cover" />
+                    </View>
+                    <Image source={{ uri: likedTracks[2].albumArt }} style={{ flex: 1 }} contentFit="cover" />
                   </View>
-                </TouchableOpacity>
-                {six.length === 0 ? (
-                  <View style={stationCardStyles.emptyPlaylist}>
-                    <LinearGradient
-                      colors={['#041a3a', '#08102e', '#030810']}
-                      locations={[0, 0.55, 1]}
-                      style={[StyleSheet.absoluteFillObject, { borderRadius: 12, margin: -SC_PAD }]}
-                    />
-                    <View style={{ zIndex: 1, alignItems: 'center', gap: 12 }}>
-                      <AnimatedMusicBars barColor="rgba(80,160,255,0.95)" />
-                      <Text style={stationCardStyles.emptyCenterTitle}>플레이리스트</Text>
-                      <Text style={stationCardStyles.emptyCenterSub}>검색 탭에서 마음에 드는{'\n'}곡을 추가하세요</Text>
+                ) : likedTracks.length >= 4 ? (
+                  <View style={[StyleSheet.absoluteFillObject, { overflow: 'hidden', borderRadius: 14 }]}>
+                    <View style={{ flex: 1, flexDirection: 'row' }}>
+                      <Image source={{ uri: likedTracks[0].albumArt }} style={{ flex: 1 }} contentFit="cover" />
+                      <Image source={{ uri: likedTracks[1].albumArt }} style={{ flex: 1 }} contentFit="cover" />
+                    </View>
+                    <View style={{ flex: 1, flexDirection: 'row' }}>
+                      <Image source={{ uri: likedTracks[2].albumArt }} style={{ flex: 1 }} contentFit="cover" />
+                      <Image source={{ uri: likedTracks[3].albumArt }} style={{ flex: 1 }} contentFit="cover" />
                     </View>
                   </View>
                 ) : (
-                  <View style={stationCardStyles.grid}>
-                    {six.map((item: any) => {
-                      const active = currentTrack?.id === item.id;
-                      return (
-                        <TouchableOpacity
-                          key={item.id}
-                          style={stationCardStyles.cell}
-                          onPress={() => onSelectTrack(item as unknown as Track)}
-                          activeOpacity={0.8}
-                        >
-                          <View style={stationCardStyles.artWrap}>
-                            {item.albumArt ? (
-                              <Image source={{ uri: item.albumArt }} style={stationCardStyles.art} contentFit="cover" />
-                            ) : (
-                              <View style={[stationCardStyles.art, stationCardStyles.artPlaceholder]}>
-                                <Icon name="musical-note" size={16} color="rgba(255,255,255,0.3)" />
-                              </View>
-                            )}
-                            {active && isPlaying && (
-                              <View style={stationCardStyles.artOverlay}>
-                                <Icon name="musical-note" size={14} color="#fff" />
-                              </View>
-                            )}
-                          </View>
-                          <Text style={[stationCardStyles.cellName, active && { color: colors.primary }]} numberOfLines={1}>
-                            {item.name}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
+                  <LinearGradient colors={['#2d0845', '#160a38', '#070720']} locations={[0, 0.55, 1]} style={StyleSheet.absoluteFillObject} />
+                )}
+                <LinearGradient colors={['rgba(0,0,0,0.0)', 'rgba(0,0,0,0.82)']} locations={[0.25, 1]} style={[StyleSheet.absoluteFillObject, { borderRadius: 14 }]} />
+                <Text style={libCardsStyles.topLabel}>보관함</Text>
+                {likedTracks.length === 0 && (
+                  <View style={libCardsStyles.emptyCenter}>
+                    <AnimatedMusicBars barColor="rgba(220,100,130,0.9)" />
                   </View>
                 )}
-              </View>
-            );
-          }}
-        />
+                <View style={libCardsStyles.bottom}>
+                  <Text style={libCardsStyles.title}>★ 즐겨찾기</Text>
+                  <Text style={libCardsStyles.sub}>{likedTracks.length}곡</Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* 플레이리스트 카드 */}
+              <TouchableOpacity
+                style={[plCardStyles.card, { width: PL_CARD_W, height: CARD_H }]}
+                onPress={() => setShowLibPage('playlist')}
+                activeOpacity={0.88}
+              >
+                <View style={plCardStyles.header}>
+                  <View>
+                    <Text style={plCardStyles.sublabel}>저장된 음악</Text>
+                    <Text style={plCardStyles.title}>플레이리스트</Text>
+                  </View>
+                  <View style={plCardStyles.countRow}>
+                    <Text style={plCardStyles.count}>{uniqueAlbums.length}앨범 · {playlist.length}곡</Text>
+                    <Icon name="chevron-right" size={13} color="rgba(255,255,255,0.4)" />
+                  </View>
+                </View>
+                {columns.length === 0 ? (
+                  <View style={plCardStyles.empty}>
+                    <AnimatedMusicBars barColor="rgba(80,160,255,0.9)" />
+                    <Text style={plCardStyles.emptyText}>검색에서 곡을 추가하세요</Text>
+                  </View>
+                ) : (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: PL_GAP }}>
+                    {uniqueAlbums.slice(0, 10).map((alb, ai) => (
+                      <View key={ai} style={{ position: 'relative' }}>
+                        <Image source={{ uri: alb.albumArt }} style={plCardStyles.img} contentFit="cover" />
+                        {alb.hasActive && isPlaying && (
+                          <View style={plCardStyles.artOverlay}>
+                            <Icon name="musical-note" size={14} color="#fff" />
+                          </View>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          );
+        })()}
       </View>
 
-      {/* ── 최근 추가된 음악 (플레이리스트 최신순) ── */}
-      {playlist.length > 0 && (
-        <View style={styles.section}>
-          <TouchableOpacity style={styles.sectionNavRow} onPress={() => setShowLibPage('playlist')} activeOpacity={0.7}>
-            <Text style={[styles.sectionTitle, { paddingHorizontal: 0, marginBottom: 0 }]}>최근 추가된 음악</Text>
-            <Icon name="chevron-right" size={14} color={colors.textTertiary} />
-          </TouchableOpacity>
-          <FlatList
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            data={playlist.slice(0, 15)}
-            keyExtractor={i => i.id + '_na'}
-            contentContainerStyle={styles.hListPad}
-            renderItem={({ item }) => {
-              const active = currentTrack?.id === item.id;
-              return (
-                <TouchableOpacity style={styles.recentCard} onPress={() => onSelectTrack(item as unknown as Track)} activeOpacity={0.8}>
-                  <View style={styles.recentArtWrap}>
-                    {item.albumArt ? (
-                      <Image source={{ uri: item.albumArt }} style={styles.recentArt} contentFit="cover" />
-                    ) : (
-                      <View style={[styles.recentArt, { backgroundColor: 'rgba(255,255,255,0.07)', alignItems: 'center', justifyContent: 'center' }]}>
-                        <Icon name="musical-note" size={28} color="rgba(255,255,255,0.25)" />
-                      </View>
-                    )}
-                    {active && isPlaying && (
-                      <View style={styles.recentOverlay}><Icon name="musical-note" size={18} color="#fff" /></View>
-                    )}
-                  </View>
-                  <Text style={[styles.recentName, active && { color: colors.primary }]} numberOfLines={1}>{item.name}</Text>
-                  <Text style={styles.recentArtist} numberOfLines={1}>{item.artists.join(', ')}</Text>
-                </TouchableOpacity>
-              );
-            }}
-          />
-        </View>
-      )}
-
-      {/* ── 최근 재생한 음악 ── */}
-      <View style={styles.section}>
+      {/* ── 최근 재생한 음악 (재생 기록 있을 때만) ── */}
+      {recentTracks.length > 0 && <View style={styles.section}>
         <TouchableOpacity style={styles.sectionNavRow} onPress={() => setShowRecent(true)} activeOpacity={0.7}>
           <Text style={[styles.sectionTitle, { paddingHorizontal: 0, marginBottom: 0 }]}>최근 재생한 음악</Text>
           <Icon name="chevron-right" size={14} color={colors.textTertiary} />
@@ -810,7 +872,7 @@ function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSe
         <FlatList
           horizontal
           showsHorizontalScrollIndicator={false}
-          data={recent}
+          data={recentTracks}
           keyExtractor={i => i.id + '_r'}
           contentContainerStyle={styles.hListPad}
           renderItem={({ item }) => {
@@ -823,26 +885,62 @@ function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSe
                     <View style={styles.recentOverlay}><Icon name="musical-note" size={18} color="#fff" /></View>
                   )}
                 </View>
-                <Text style={[styles.recentName, active && { color: colors.primary }]} numberOfLines={1}>{item.name}</Text>
+                <Text style={[styles.recentName, active && { color: colors.primary }]} numberOfLines={2}>{item.name}</Text>
                 <Text style={styles.recentArtist} numberOfLines={1}>{item.artists.join(', ')}</Text>
               </TouchableOpacity>
             );
           }}
         />
-      </View>
+      </View>}
 
-      {/* ── BTS 앨범 목록 ── */}
-      {tracks.length > 0 && (
-        <AlbumDropdownList
-          tracks={tracks}
-          currentTrack={currentTrack}
-          isPlaying={isPlaying}
-          likedIds={likedIds}
-          onSelectTrack={onSelectTrack}
-          onToggleLike={onToggleLike}
-          sectionTitle="BTS 앨범"
-          initialExpanded={false}
-        />
+      {/* ── 추천 앨범 (horizontal cards) ── */}
+      {albums.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>추천 앨범</Text>
+          <FlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            data={albums}
+            keyExtractor={a => a.title}
+            contentContainerStyle={styles.hListPad}
+            renderItem={({ item: a }) => (
+              <TouchableOpacity
+                style={albumCardStyles.card}
+                onPress={() => onOpenAlbum(a.title, a.art, a.tracks)}
+                activeOpacity={0.82}
+              >
+                <Image source={{ uri: a.art }} style={albumCardStyles.art} contentFit="cover" />
+                <Text style={albumCardStyles.name} numberOfLines={2}>{a.title}</Text>
+                <Text style={albumCardStyles.count}>{a.tracks.length}곡</Text>
+              </TouchableOpacity>
+            )}
+          />
+        </View>
+      )}
+
+      {/* ── 전체 앨범 (vertical list) ── */}
+      {albums.length > 0 && (
+        <View style={[styles.section, { marginBottom: 8 }]}>
+          <View style={styles.sectionNavRow}>
+            <Text style={[styles.sectionTitle, { paddingHorizontal: 0, marginBottom: 0 }]}>전체 앨범</Text>
+            <Icon name="chevron-right" size={14} color={colors.textTertiary} />
+          </View>
+          {albums.map(a => (
+            <TouchableOpacity
+              key={a.title}
+              style={albumListStyles.row}
+              onPress={() => onOpenAlbum(a.title, a.art, a.tracks)}
+              activeOpacity={0.75}
+            >
+              <Image source={{ uri: a.art }} style={albumListStyles.thumb} contentFit="cover" />
+              <View style={albumListStyles.info}>
+                <Text style={albumListStyles.name} numberOfLines={1}>{a.title}</Text>
+                <Text style={albumListStyles.meta}>{a.tracks.length}곡</Text>
+              </View>
+              <Icon name="chevron-right" size={14} color="rgba(255,255,255,0.3)" />
+            </TouchableOpacity>
+          ))}
+        </View>
       )}
     </ScrollView>
   );
@@ -851,12 +949,21 @@ function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSe
 /* ═══════════════════════════════════════════════
    보관함 탭 — 플레이리스트 + 즐겨찾기 섹션
 ══════════════════════════════════════════════ */
-function LibraryTab({ tracks, currentTrack, isPlaying, likedIds, onSelectTrack, onToggleLike }: {
+function LibraryTab({ tracks, currentTrack, isPlaying, likedIds, onSelectTrack, onToggleLike, onBack }: {
   tracks: Track[]; currentTrack: Track | null; isPlaying: boolean;
   likedIds: Set<string>; onSelectTrack: (t: Track) => void; onToggleLike: (id: string) => void;
+  onBack?: () => void;
 }) {
   const [playlist, setPlaylist] = useState(() => loadPlaylist());
   const [editMode, setEditMode] = useState(false);
+
+  // Firestore 동기화 후 갱신
+  useEffect(() => {
+    const handler = () => setPlaylist(loadPlaylist());
+    window.addEventListener('kpop_playlist_synced', handler);
+    return () => window.removeEventListener('kpop_playlist_synced', handler);
+  }, []);
+
   const likedTracks = useMemo(() => {
     const trackMap = new Map<string, Track>();
     [...tracks, ...(playlist as unknown as Track[])].forEach(t => { if (!trackMap.has(t.id)) trackMap.set(t.id, t); });
@@ -871,7 +978,14 @@ function LibraryTab({ tracks, currentTrack, isPlaying, likedIds, onSelectTrack, 
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: TAB_MINI_OFFSET }}>
       <View style={styles.listHeader}>
-        <Text style={styles.homeTitle}>보관함</Text>
+        {onBack ? (
+          <TouchableOpacity onPress={onBack} style={styles.navBackRow} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Icon name="chevron-left" size={22} color={colors.primary} />
+            <Text style={styles.navBackTitle}>나의 보관함</Text>
+          </TouchableOpacity>
+        ) : (
+          <Text style={styles.homeTitle}>나의 보관함</Text>
+        )}
       </View>
 
       {/* ── 플레이리스트 섹션 (앨범별 드롭다운) */}
@@ -919,7 +1033,7 @@ function LibraryTab({ tracks, currentTrack, isPlaying, likedIds, onSelectTrack, 
       {/* ── 즐겨찾기 섹션 */}
       <View style={styles.section}>
         <View style={styles.sectionRow}>
-          <Icon name="heart-fill" size={15} color={colors.primary} />
+          <Icon name="star-fill" size={15} color="#FFD700" />
           <Text style={[styles.sectionTitle, { marginLeft: 6, marginBottom: 0 }]}>즐겨찾기</Text>
           {likedTracks.length > 0 && (
             <Text style={{ fontSize: 13, color: colors.textTertiary, marginLeft: 4 }}>{likedTracks.length}곡</Text>
@@ -927,8 +1041,8 @@ function LibraryTab({ tracks, currentTrack, isPlaying, likedIds, onSelectTrack, 
         </View>
         {likedTracks.length === 0 ? (
           <View style={[styles.libEmpty, { paddingVertical: 20, alignItems: 'center' }]}>
-            <Icon name="heart" size={36} color={colors.textTertiary} />
-            <Text style={[styles.libEmptyText, { marginTop: 8 }]}>재생 화면에서 ♥ 버튼으로 추가하세요</Text>
+            <Icon name="star" size={36} color={colors.textTertiary} />
+            <Text style={[styles.libEmptyText, { marginTop: 8 }]}>재생 화면에서 ★ 버튼으로 추가하세요</Text>
           </View>
         ) : (
           likedTracks.map(item => (
@@ -962,9 +1076,9 @@ function LikedTab({ tracks, currentTrack, isPlaying, likedIds, onSelectTrack, on
       </View>
       {liked.length === 0 ? (
         <View style={styles.empty}>
-          <Icon name="heart" size={52} color={colors.textTertiary} />
+          <Icon name="star" size={52} color={colors.textTertiary} />
           <Text style={styles.emptyText}>즐겨찾기한 곡이 없습니다</Text>
-          <Text style={styles.emptyHint}>보관함에서 ♡ 버튼을 눌러 추가하세요</Text>
+          <Text style={styles.emptyHint}>재생 화면에서 ★ 버튼을 눌러 추가하세요</Text>
         </View>
       ) : (
         <FlatList
@@ -994,9 +1108,12 @@ function TrackRow({ item, currentTrack, isPlaying, likedIds, onSelect, onLike }:
     >
       <Image source={{ uri: item.albumArt }} style={styles.trackArt} contentFit="cover" />
       <View style={styles.trackInfo}>
-        <Text style={[styles.trackName, active && { color: colors.primary }]} numberOfLines={1}>
-          {item.name}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          {liked && <Icon name="star-fill" size={10} color="#FFD700" />}
+          <Text style={[styles.trackName, active && { color: colors.primary }, { flex: 1 }]} numberOfLines={1}>
+            {item.name}
+          </Text>
+        </View>
         <Text style={styles.trackArtist} numberOfLines={1}>{item.artists.join(', ')}</Text>
       </View>
       <TouchableOpacity
@@ -1004,7 +1121,7 @@ function TrackRow({ item, currentTrack, isPlaying, likedIds, onSelect, onLike }:
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         style={styles.likeBtn}
       >
-        <Icon name={liked ? 'heart-fill' : 'heart'} size={17} color={liked ? colors.primary : 'rgba(255,255,255,0.28)'} />
+        <Icon name={liked ? 'star-fill' : 'star'} size={17} color={liked ? '#FFD700' : 'rgba(255,255,255,0.28)'} />
       </TouchableOpacity>
       <View style={styles.trackRight}>
         {active && isPlaying ? (
@@ -1021,45 +1138,27 @@ function TrackRow({ item, currentTrack, isPlaying, likedIds, onSelect, onLike }:
    메인 HomeScreen
 ══════════════════════════════════════════════ */
 const HomeScreen = React.memo(function HomeScreen({
-  activeTab, tracks, currentTrack, isPlaying, likedIds, recentTracks, onSelectTrack, onToggleLike, onVocabPress, playlistCount, onOpenPlaylist, onOpenLibrary,
+  tracks, currentTrack, isPlaying, likedIds, recentTracks, onSelectTrack, onToggleLike, onOpenAlbum, onVocabPress, onSearchPress, user, authLoading, onLogin, onLogout,
 }: Props) {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
-      {activeTab === 'home' && (
-        <HomeTab
-          tracks={tracks}
-          currentTrack={currentTrack}
-          isPlaying={isPlaying}
-          likedIds={likedIds}
-          recentTracks={recentTracks}
-          onSelectTrack={onSelectTrack}
-          onToggleLike={onToggleLike}
-          onVocabPress={onVocabPress}
-          onOpenPlaylist={onOpenPlaylist}
-          onOpenLibrary={onOpenLibrary}
-        />
-      )}
-      {activeTab === 'library' && (
-        <LibraryTab
-          tracks={tracks}
-          currentTrack={currentTrack}
-          isPlaying={isPlaying}
-          likedIds={likedIds}
-          onSelectTrack={onSelectTrack}
-          onToggleLike={onToggleLike}
-        />
-      )}
-      {activeTab === 'liked' && (
-        <LikedTab
-          tracks={tracks}
-          currentTrack={currentTrack}
-          isPlaying={isPlaying}
-          likedIds={likedIds}
-          onSelectTrack={onSelectTrack}
-          onToggleLike={onToggleLike}
-        />
-      )}
+      <HomeTab
+        tracks={tracks}
+        currentTrack={currentTrack}
+        isPlaying={isPlaying}
+        likedIds={likedIds}
+        recentTracks={recentTracks}
+        onSelectTrack={onSelectTrack}
+        onToggleLike={onToggleLike}
+        onVocabPress={onVocabPress}
+        onSearchPress={onSearchPress}
+        onOpenAlbum={onOpenAlbum}
+        user={user}
+        authLoading={authLoading}
+        onLogin={onLogin}
+        onLogout={onLogout}
+      />
     </SafeAreaView>
   );
 });
@@ -1222,19 +1321,78 @@ const styles = StyleSheet.create({
   homeHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.sm,
   },
-  homeTitle: { fontSize: 30, fontWeight: '800', color: '#fff' },
-  vocabBtn: { alignItems: 'center', gap: 2 },
-  vocabBtnLabel: { fontSize: 9, color: 'rgba(255,255,255,0.6)', fontWeight: '600' },
+  homeSubtitle: {
+    fontSize: 11, fontWeight: '700', color: colors.primary,
+    letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 2,
+  },
+  homeTitle: { fontSize: 38, fontWeight: '900', color: '#fff', letterSpacing: -1 },
+  vocabBtn: { alignItems: 'center', paddingBottom: 4 },
+  vocabIconBox: {
+    width: 40, height: 40, borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
+  },
+  vocabIconText: { fontSize: 13, fontWeight: '900', color: '#fff', letterSpacing: -0.5 },
+  vocabIconSearch: { position: 'absolute', bottom: 6, right: 5 },
+
+  /* 검색바 */
+  searchBar: {
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: spacing.lg, marginBottom: 24,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 14, paddingLeft: 16, paddingRight: 6, paddingVertical: 6,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+  },
+  searchPlaceholder: {
+    flex: 1, fontSize: 15, color: 'rgba(255,255,255,0.35)',
+  },
+  searchBtn: {
+    width: 38, height: 38, borderRadius: 10,
+    backgroundColor: colors.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+
+  // 계정 배너
+  authBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: spacing.lg, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)',
+  },
+  authAvatar: { width: 28, height: 28, borderRadius: 14 },
+  authAvatarPlaceholder: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: '#FC3C44', alignItems: 'center', justifyContent: 'center',
+  },
+  authAvatarText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  authName: { flex: 1, fontSize: 13, color: 'rgba(255,255,255,0.75)', fontWeight: '500' },
+  syncDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#30D158' },
+  syncLabel: { fontSize: 12, color: '#30D158', fontWeight: '600' },
+  authLogoutBtn: {
+    paddingHorizontal: 12, paddingVertical: 5,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+  },
+  authLogoutText: { fontSize: 12, color: 'rgba(255,255,255,0.6)' },
+  authLoginBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginHorizontal: spacing.lg, marginVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 9,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+  },
+  googleIcon: { fontSize: 14, fontWeight: '900', color: '#4285F4', width: 20, textAlign: 'center' },
+  authLoginText: { fontSize: 13, color: 'rgba(255,255,255,0.6)', flex: 1 },
 
   /* 섹션 */
   section: { marginBottom: 28 },
   sectionTitle: {
-    fontSize: 20, fontWeight: '800', color: '#fff',
+    fontSize: 22, fontWeight: '800', color: '#fff',
     paddingHorizontal: spacing.lg, marginBottom: 12,
   },
   sectionRow: {
@@ -1283,9 +1441,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.sm,
+  },
+  navBackRow: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 10,
+    alignItems: 'center',
+    gap: 4,
+  },
+  navBackTitle: {
+    fontSize: 28, fontWeight: '800', color: '#fff',
   },
   listHeaderSub: { fontSize: 14, color: colors.textTertiary },
 
@@ -1377,4 +1540,100 @@ const styles = StyleSheet.create({
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
   emptyText: { fontSize: 16, fontWeight: '500', color: colors.textSecondary },
   emptyHint: { fontSize: 13, color: colors.textTertiary },
+});
+
+// ── 나의 보관함 카드 2열 레이아웃
+const LC_PAD = spacing.lg;
+const LC_GAP = 10;
+const LC_W = (width - LC_PAD * 2 - LC_GAP) / 2;
+const LC_H = LC_W * 1.25;
+
+const libCardsStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    paddingHorizontal: LC_PAD,
+    gap: LC_GAP,
+    marginTop: 4,
+  },
+  card: {
+    width: LC_W,
+    height: LC_H,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(22,22,35,0.97)',
+  },
+  topLabel: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.55)',
+    letterSpacing: 0.3,
+  },
+  emptyCenter: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bottom: {
+    position: 'absolute',
+    bottom: 14,
+    left: 12,
+    right: 12,
+  },
+  title: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#fff',
+    marginBottom: 3,
+  },
+  sub: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.55)',
+  },
+});
+
+// ── 플레이리스트 카드 내부 스타일
+const PL_PAD = 12;
+const PL_GAP = 6;
+// 즐겨찾기 카드 폭 (고정)
+const CARD_W = Math.min(width - LC_PAD * 2, 270);
+// 플레이리스트 카드 — 가로 full auto (가용 너비 전체)
+const PL_CARD_W = width - LC_PAD * 2;
+// 5열에 맞게 이미지 크기 자동 계산
+const PL_IMG = Math.floor((PL_CARD_W - PL_PAD * 2 - PL_GAP * 4) / 5);
+// 2행 이미지 + 헤더 + 패딩
+const CARD_H = PL_IMG * 2 + PL_GAP + 52 + PL_PAD * 2;
+
+const plCardStyles = StyleSheet.create({
+  card: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 14,
+    padding: PL_PAD,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    paddingBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  sublabel: { fontSize: 10, color: 'rgba(255,255,255,0.45)', fontWeight: '500', marginBottom: 3 },
+  title: { fontSize: 16, fontWeight: '800', color: '#fff' },
+  countRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  count: { fontSize: 11, color: 'rgba(255,255,255,0.4)' },
+  img: { width: PL_IMG, height: PL_IMG, borderRadius: 8 },
+  artOverlay: {
+    ...StyleSheet.absoluteFillObject, borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center',
+  },
+  empty: { height: PL_IMG * 2 + PL_GAP, width: '100%', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  emptyText: { fontSize: 10, color: 'rgba(255,255,255,0.4)', textAlign: 'center' },
 });
