@@ -822,42 +822,57 @@ function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSe
                 </View>
               </TouchableOpacity>
 
-              {/* 플레이리스트 카드 */}
-              <TouchableOpacity
-                style={[plCardStyles.card, { width: PL_CARD_W, height: CARD_H }]}
-                onPress={() => setShowLibPage('playlist')}
-                activeOpacity={0.88}
-              >
-                <View style={plCardStyles.header}>
-                  <View>
-                    <Text style={plCardStyles.sublabel}>저장된 음악</Text>
-                    <Text style={plCardStyles.title}>플레이리스트</Text>
-                  </View>
-                  <View style={plCardStyles.countRow}>
-                    <Text style={plCardStyles.count}>{uniqueAlbums.length}앨범 · {playlist.length}곡</Text>
-                    <Icon name="chevron-right" size={13} color="rgba(255,255,255,0.4)" />
-                  </View>
-                </View>
-                {columns.length === 0 ? (
-                  <View style={plCardStyles.empty}>
-                    <AnimatedMusicBars barColor="rgba(80,160,255,0.9)" />
-                    <Text style={plCardStyles.emptyText}>검색에서 곡을 추가하세요</Text>
-                  </View>
-                ) : (
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: PL_GAP }}>
-                    {uniqueAlbums.slice(0, 10).map((alb, ai) => (
-                      <View key={ai} style={{ position: 'relative' }}>
-                        <Image source={{ uri: alb.albumArt }} style={plCardStyles.img} contentFit="cover" />
-                        {alb.hasActive && isPlaying && (
-                          <View style={plCardStyles.artOverlay}>
-                            <Icon name="musical-note" size={14} color="#fff" />
-                          </View>
-                        )}
+              {/* 플레이리스트 카드 — 열 단위 배치, 가로 동적 */}
+              {(() => {
+                const visible = uniqueAlbums.slice(0, 10);
+                const numCols = visible.length === 0 ? 2 : Math.min(5, Math.ceil(visible.length / 2));
+                const plW = numCols * PL_IMG + (numCols - 1) * PL_GAP + PL_PAD * 2;
+                return (
+                  <TouchableOpacity
+                    style={[plCardStyles.card, { width: plW, height: CARD_H }]}
+                    onPress={() => setShowLibPage('playlist')}
+                    activeOpacity={0.88}
+                  >
+                    <View style={plCardStyles.header}>
+                      <View>
+                        <Text style={plCardStyles.sublabel}>저장된 음악</Text>
+                        <Text style={plCardStyles.title}>플레이리스트</Text>
                       </View>
-                    ))}
-                  </View>
-                )}
-              </TouchableOpacity>
+                      <View style={plCardStyles.countRow}>
+                        <Text style={plCardStyles.count}>{uniqueAlbums.length}앨범 · {playlist.length}곡</Text>
+                        <Icon name="chevron-right" size={13} color="rgba(255,255,255,0.4)" />
+                      </View>
+                    </View>
+                    {visible.length === 0 ? (
+                      <View style={plCardStyles.empty}>
+                        <AnimatedMusicBars barColor="rgba(80,160,255,0.9)" />
+                        <Text style={plCardStyles.emptyText}>검색에서 곡을 추가하세요</Text>
+                      </View>
+                    ) : (
+                      <View style={{ flexDirection: 'row', gap: PL_GAP }}>
+                        {Array.from({ length: numCols }, (_, col) => (
+                          <View key={col} style={{ flexDirection: 'column', gap: PL_GAP }}>
+                            {[0, 1].map(row => {
+                              const alb = visible[col * 2 + row];
+                              if (!alb) return <View key={row} style={{ width: PL_IMG, height: PL_IMG }} />;
+                              return (
+                                <View key={row} style={{ position: 'relative' }}>
+                                  <Image source={{ uri: alb.albumArt }} style={plCardStyles.img} contentFit="cover" />
+                                  {alb.hasActive && isPlaying && (
+                                    <View style={plCardStyles.artOverlay}>
+                                      <Icon name="musical-note" size={14} color="#fff" />
+                                    </View>
+                                  )}
+                                </View>
+                              );
+                            })}
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })()}
             </ScrollView>
           );
         })()}
@@ -1596,15 +1611,12 @@ const libCardsStyles = StyleSheet.create({
 });
 
 // ── 플레이리스트 카드 내부 스타일
+const PL_IMG = 72;  // 앨범 이미지 고정 크기
 const PL_PAD = 12;
 const PL_GAP = 6;
 // 즐겨찾기 카드 폭 (고정)
 const CARD_W = Math.min(width - LC_PAD * 2, 270);
-// 플레이리스트 카드 — 가로 full auto (가용 너비 전체)
-const PL_CARD_W = width - LC_PAD * 2;
-// 5열에 맞게 이미지 크기 자동 계산
-const PL_IMG = Math.floor((PL_CARD_W - PL_PAD * 2 - PL_GAP * 4) / 5);
-// 2행 이미지 + 헤더 + 패딩
+// 플레이리스트 카드 높이 고정 (2행)
 const CARD_H = PL_IMG * 2 + PL_GAP + 52 + PL_PAD * 2;
 
 const plCardStyles = StyleSheet.create({
