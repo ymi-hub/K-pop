@@ -12,6 +12,23 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { colors, spacing, borderRadius } from '../theme';
+
+// 인라인 SVG 아이콘 (웹 전용)
+const IconEdit = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+  </svg>
+);
+const IconTrash = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6"/>
+    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+    <path d="M10 11v6"/>
+    <path d="M14 11v6"/>
+    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+  </svg>
+);
 import { getSavedWords, updateWord, deleteWord, SavedWord } from '../services/vocabStorage';
 import { subscribeVocab, saveVocab } from '../services/syncService';
 import { mergeFromFirestore } from '../services/vocabStorage';
@@ -118,11 +135,11 @@ export default function VocabListScreen({ onBack, uid, tracks, onQuizPress }: Pr
           </View>
         </View>
         <View style={styles.actions}>
-          <TouchableOpacity onPress={() => handleEditOpen(item)} style={styles.actionBtn}>
-            <Text style={styles.actionIcon}>✏️</Text>
+          <TouchableOpacity onPress={() => handleEditOpen(item)} style={styles.actionBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <IconEdit />
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => handleDelete(item.word)} style={styles.actionBtn}>
-            <Text style={styles.actionIcon}>🗑️</Text>
+          <TouchableOpacity onPress={() => handleDelete(item.word)} style={styles.actionBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <IconTrash />
           </TouchableOpacity>
         </View>
       </View>
