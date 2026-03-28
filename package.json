@@ -6,7 +6,9 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "deploy": "npx expo export -p web && wrangler deploy",
+    "preview": "npx expo export -p web && wrangler dev"
   },
   "dependencies": {
     "@expo/metro-runtime": "~55.0.6",
@@ -33,7 +35,8 @@
   "devDependencies": {
     "@types/react": "~19.2.2",
     "pdfkit": "^0.18.0",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "wrangler": "^4.78.0"
   },
   "private": true
 }
