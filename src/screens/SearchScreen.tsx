@@ -25,6 +25,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 interface Props {
   onPlayTrack: (track: Track) => void;
   onPlaylistChange: () => void;
+  onRemoveFromPlaylist?: (id: string) => void;
   onBack?: () => void;
 }
 
@@ -188,7 +189,7 @@ function fmt(ms: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export default function SearchScreen({ onPlayTrack, onPlaylistChange, onBack }: Props) {
+export default function SearchScreen({ onPlayTrack, onPlaylistChange, onRemoveFromPlaylist, onBack }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<MusicResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -251,7 +252,8 @@ export default function SearchScreen({ onPlayTrack, onPlaylistChange, onBack }: 
   const handleAdd = async (r: MusicResult) => {
     const track = resultToTrack(r);
     if (inPlaylistIds.has(r.id)) {
-      removeFromPlaylist(r.id);
+      if (onRemoveFromPlaylist) onRemoveFromPlaylist(r.id);
+      else removeFromPlaylist(r.id);
       setInPlaylistIds(prev => { const n = new Set(prev); n.delete(r.id); return n; });
       onPlaylistChange();
       return;

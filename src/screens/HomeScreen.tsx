@@ -86,6 +86,7 @@ interface Props {
   onSelectTrack: (track: Track) => void;
   onToggleLike: (id: string) => void;
   onOpenAlbum: (name: string, art: string, tracks: Track[]) => void;
+  onRemoveFromPlaylist?: (id: string) => void;
   onVocabPress?: () => void;
   onSearchPress?: () => void;
   user?: User | null;
@@ -582,7 +583,7 @@ const albumListStyles = StyleSheet.create({
 /* ═══════════════════════════════════════════════
    홈 탭 — Apple Music 스타일 홈 페이지
 ══════════════════════════════════════════════ */
-function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSelectTrack, onToggleLike, onVocabPress, onOpenAlbum, user, authLoading, onLogin, onLogout, onSearchPress }: {
+function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSelectTrack, onToggleLike, onVocabPress, onOpenAlbum, user, authLoading, onLogin, onLogout, onSearchPress, onRemoveFromPlaylist }: {
   tracks: Track[];
   currentTrack: Track | null;
   isPlaying: boolean;
@@ -597,6 +598,7 @@ function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSe
   onLogin?: () => void;
   onLogout?: () => void;
   onSearchPress?: () => void;
+  onRemoveFromPlaylist?: (id: string) => void;
 }) {
   const [showRecent, setShowRecent] = useState(false);
   const [showLibPage, setShowLibPage] = useState<'liked' | 'playlist' | null>(null);
@@ -644,6 +646,7 @@ function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSe
         likedIds={likedIds}
         onSelectTrack={onSelectTrack}
         onToggleLike={onToggleLike}
+        onRemoveFromPlaylist={onRemoveFromPlaylist}
         onBack={() => setShowLibrary(false)}
       />
     );
@@ -964,9 +967,10 @@ function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSe
 /* ═══════════════════════════════════════════════
    보관함 탭 — 플레이리스트 + 즐겨찾기 섹션
 ══════════════════════════════════════════════ */
-function LibraryTab({ tracks, currentTrack, isPlaying, likedIds, onSelectTrack, onToggleLike, onBack }: {
+function LibraryTab({ tracks, currentTrack, isPlaying, likedIds, onSelectTrack, onToggleLike, onRemoveFromPlaylist, onBack }: {
   tracks: Track[]; currentTrack: Track | null; isPlaying: boolean;
   likedIds: Set<string>; onSelectTrack: (t: Track) => void; onToggleLike: (id: string) => void;
+  onRemoveFromPlaylist?: (id: string) => void;
   onBack?: () => void;
 }) {
   const [playlist, setPlaylist] = useState(() => loadPlaylist());
@@ -986,7 +990,8 @@ function LibraryTab({ tracks, currentTrack, isPlaying, likedIds, onSelectTrack, 
   }, [tracks, playlist, likedIds]);
 
   const handleRemove = (id: string) => {
-    removeFromPlaylist(id);
+    if (onRemoveFromPlaylist) onRemoveFromPlaylist(id);
+    else removeFromPlaylist(id);
     setPlaylist(loadPlaylist());
   };
 
@@ -1153,7 +1158,7 @@ function TrackRow({ item, currentTrack, isPlaying, likedIds, onSelect, onLike }:
    메인 HomeScreen
 ══════════════════════════════════════════════ */
 const HomeScreen = React.memo(function HomeScreen({
-  tracks, currentTrack, isPlaying, likedIds, recentTracks, onSelectTrack, onToggleLike, onOpenAlbum, onVocabPress, onSearchPress, user, authLoading, onLogin, onLogout,
+  tracks, currentTrack, isPlaying, likedIds, recentTracks, onSelectTrack, onToggleLike, onOpenAlbum, onVocabPress, onSearchPress, onRemoveFromPlaylist, user, authLoading, onLogin, onLogout,
 }: Props) {
   return (
     <SafeAreaView style={styles.container}>
@@ -1166,6 +1171,7 @@ const HomeScreen = React.memo(function HomeScreen({
         recentTracks={recentTracks}
         onSelectTrack={onSelectTrack}
         onToggleLike={onToggleLike}
+        onRemoveFromPlaylist={onRemoveFromPlaylist}
         onVocabPress={onVocabPress}
         onSearchPress={onSearchPress}
         onOpenAlbum={onOpenAlbum}

@@ -8,7 +8,7 @@ import LoginScreen from './src/screens/LoginScreen';
 import AlbumDetailScreen from './src/screens/AlbumDetailScreen';
 import SearchScreen from './src/screens/SearchScreen';
 import QuizScreen from './src/screens/QuizScreen';
-import { loadPlaylist, getCachedLyrics } from './src/services/playlistStorage';
+import { loadPlaylist, getCachedLyrics, removeFromPlaylist } from './src/services/playlistStorage';
 import MiniPlayer from './src/components/MiniPlayer';
 import { Track, LyricLine } from './src/types';
 import { getLyrics } from './src/services/lyrics';
@@ -403,6 +403,21 @@ export default function App() {
   const handleToggleRepeat = useCallback(() =>
     setRepeatMode(prev => prev === 'off' ? 'all' : prev === 'all' ? 'one' : 'off'), []);
 
+  const handleRemoveFromPlaylist = useCallback((id: string) => {
+    removeFromPlaylist(id);
+    // 즐겨찾기에서 제거
+    setLikedIds(prev => {
+      if (!prev.has(id)) return prev;
+      const next = new Set([...prev].filter(x => x !== id));
+      const ids = [...next];
+      if (userRef.current) saveLiked(userRef.current.uid, ids).catch(() => {});
+      else { try { localStorage.setItem('kpop_liked_ids', JSON.stringify(ids)); } catch {} }
+      return next;
+    });
+    // 최근 재생에서 제거
+    setRecentTracks(prev => prev.filter(t => t.id !== id));
+  }, []);
+
   const handleToggleLike = useCallback((trackId?: string) => {
     const id = typeof trackId === 'string' ? trackId : currentTrack?.id;
     if (!id) return;
@@ -473,6 +488,7 @@ export default function App() {
           <SearchScreen
             onPlayTrack={handleSelectAnyTrack}
             onPlaylistChange={() => {}}
+            onRemoveFromPlaylist={handleRemoveFromPlaylist}
             onBack={handleBackToHome}
           />
         ) : screen === 'album' && activeAlbum ? (
@@ -498,6 +514,7 @@ export default function App() {
             onSelectTrack={handleSelectAnyTrack}
             onToggleLike={handleToggleLike}
             onOpenAlbum={handleOpenAlbum}
+            onRemoveFromPlaylist={handleRemoveFromPlaylist}
             onVocabPress={() => setScreen('vocab')}
             onSearchPress={() => setScreen('search')}
             user={user}
