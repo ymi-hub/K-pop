@@ -7,6 +7,7 @@ import VocabListScreen from './src/screens/VocabListScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import AlbumDetailScreen from './src/screens/AlbumDetailScreen';
 import SearchScreen from './src/screens/SearchScreen';
+import QuizScreen from './src/screens/QuizScreen';
 import { loadPlaylist, getCachedLyrics } from './src/services/playlistStorage';
 import MiniPlayer from './src/components/MiniPlayer';
 import { Track, LyricLine } from './src/types';
@@ -32,7 +33,7 @@ import {
 import { subscribeLiked, saveLiked, subscribeRecent, saveRecent, subscribePlaylistItems, savePlaylistItems } from './src/services/syncService';
 import { setFirestorePlaylistSaver } from './src/services/playlistStorage';
 
-type Screen = 'home' | 'vocab' | 'album' | 'search';
+type Screen = 'home' | 'vocab' | 'album' | 'search' | 'quiz';
 type RepeatMode = 'off' | 'one' | 'all';
 
 const SAFE_AREA_INITIAL = {
@@ -464,8 +465,10 @@ export default function App() {
     <ErrorBoundary>
       <SafeAreaProvider initialMetrics={SAFE_AREA_INITIAL}>
         {/* Base layer: current screen */}
-        {screen === 'vocab' ? (
-          <VocabListScreen uid={user?.uid ?? null} tracks={tracks} onBack={handleBackToHome} onQuizPress={handleBackToHome} />
+        {screen === 'quiz' ? (
+          <QuizScreen onBack={handleBackToHome} hasMiniPlayer={!!currentTrack} />
+        ) : screen === 'vocab' ? (
+          <VocabListScreen uid={user?.uid ?? null} tracks={tracks} onBack={handleBackToHome} onQuizPress={() => setScreen('quiz')} />
         ) : screen === 'search' ? (
           <SearchScreen
             onPlayTrack={handleSelectAnyTrack}
