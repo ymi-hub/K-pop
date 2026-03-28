@@ -52,6 +52,7 @@ export default function VocabListScreen({ onBack, uid, tracks, onQuizPress }: Pr
   const [editTarget, setEditTarget] = useState<SavedWord | null>(null);
   const [editKorean, setEditKorean] = useState('');
   const [editMeaning, setEditMeaning] = useState('');
+  const reload = useCallback(() => setWords(getSavedWords()), []);
   const [quizMode, setQuizMode] = useState(false);
   const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
   const [quizScore, setQuizScore] = useState(0);
@@ -114,8 +115,7 @@ export default function VocabListScreen({ onBack, uid, tracks, onQuizPress }: Pr
   const handleEditSave = () => {
     if (!editTarget) return;
     updateWord(editTarget.word, { koreanMeaning: editKorean, meaning: editMeaning }, uid)
-      .then(reload);
-    setEditTarget(null);
+      .then(() => { setEditTarget(null); reload(); });
   };
 
   const getAlbumArt = (songName: string) => {
