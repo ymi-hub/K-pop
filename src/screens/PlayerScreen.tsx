@@ -82,28 +82,83 @@ function ProgressBar({ value, max, onChange }: { value: number; max: number; onC
   );
 }
 
-function VolumeBar() {
+// 볼륨 슬라이더 글로벌 CSS (한 번만 주입)
+if (typeof document !== 'undefined' && !document.getElementById('__vol_style__')) {
+  const s = document.createElement('style');
+  s.id = '__vol_style__';
+  s.innerHTML = `
+    input.kpop-vol {
+      -webkit-appearance: none; appearance: none;
+      width: 100%; height: 20px;
+      background: transparent; outline: none; cursor: pointer;
+      margin: 0; padding: 0;
+    }
+    input.kpop-vol::-webkit-slider-runnable-track {
+      height: 4px; border-radius: 2px;
+      background: linear-gradient(to right,
+        rgba(255,255,255,0.9) var(--vol, 100%),
+        rgba(255,255,255,0.22) var(--vol, 100%));
+    }
+    input.kpop-vol::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 14px; height: 14px;
+      margin-top: -5px;
+      border-radius: 50%; background: #fff; cursor: pointer;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+    }
+    input.kpop-vol::-moz-range-track {
+      height: 4px; border-radius: 2px;
+      background: rgba(255,255,255,0.22);
+    }
+    input.kpop-vol::-moz-range-progress {
+      height: 4px; border-radius: 2px;
+      background: rgba(255,255,255,0.9);
+    }
+    input.kpop-vol::-moz-range-thumb {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #fff; border: none; cursor: pointer;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+    }
+  `;
+  document.head.appendChild(s);
+}
+
+function VolumeRow() {
   const [vol, setVol] = useState(() => {
     const saved = parseInt(localStorage.getItem('kpop_volume') ?? '', 10);
-    return isNaN(saved) ? ytGetVolume() : saved;
+    return isNaN(saved) ? 100 : saved;
   });
+
+  const applyVolume = (v: number) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(v)));
+    setVol(clamped);
+    ytSetVolume(clamped);
+    audioSetVolume(clamped);
+  };
+
   return (
-    <input
-      type="range" min={0} max={100} value={vol}
-      aria-label="볼륨"
-      onChange={e => {
-        const v = Number(e.target.value);
-        setVol(v);
-        ytSetVolume(v);
-        audioSetVolume(v);
-      }}
-      style={{
-        flex: 1, height: 4, cursor: 'pointer',
-        outline: 'none', WebkitAppearance: 'none', appearance: 'none',
-        background: `linear-gradient(to right, rgba(255,255,255,0.9) ${vol}%, rgba(255,255,255,0.25) ${vol}%)`,
-        borderRadius: 2, accentColor: 'rgba(255,255,255,0.9)',
-      } as React.CSSProperties}
-    />
+    <View style={styles.volumeRow}>
+      <TouchableOpacity
+        onPress={() => applyVolume(vol - 10)}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
+        <Icon name="volume-low" size={18} color={vol === 0 ? colors.primary : 'rgba(255,255,255,0.55)'} />
+      </TouchableOpacity>
+
+      <input
+        type="range" min={0} max={100} value={vol}
+        className="kpop-vol"
+        onChange={e => applyVolume(Number(e.target.value))}
+        onInput={(e: any) => applyVolume(Number(e.target.value))}
+        style={{ '--vol': `${vol}%`, flex: 1 } as React.CSSProperties}
+      />
+
+      <TouchableOpacity
+        onPress={() => applyVolume(vol + 10)}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
+        <Icon name="volume-high" size={18} color={vol === 100 ? colors.primary : 'rgba(255,255,255,0.55)'} />
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -182,11 +237,7 @@ function Controls({
       </View>
 
       {/* 볼륨 */}
-      <View style={styles.volumeRow}>
-        <Icon name="volume-low" size={16} color="rgba(255,255,255,0.45)" />
-        <VolumeBar />
-        <Icon name="volume-high" size={16} color="rgba(255,255,255,0.45)" />
-      </View>
+      <VolumeRow />
 
       {/* 하단 툴바 */}
       <View style={styles.bottomToolbar}>
@@ -539,6 +590,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     overflow: 'hidden',
+    position: 'relative',
   },
   lyricsFade: {
     position: 'absolute',

@@ -81,12 +81,17 @@ export function createYTPlayer(
 export function ytLoadVideo(videoId: string): void {
   if (!player) return;
   player.loadVideoById(videoId);
-  // loadVideoById 후 unmute 보장 (mute:1로 생성된 경우 대비)
+  const saved = parseInt(localStorage.getItem('kpop_volume') ?? '100', 10);
+  const vol = isNaN(saved) ? 100 : Math.max(0, Math.min(100, saved));
+  player.setVolume(vol);
   player.unMute();
 }
 
 export function ytPlay(): void {
   if (!player) return;
+  const saved = parseInt(localStorage.getItem('kpop_volume') ?? '100', 10);
+  const vol = isNaN(saved) ? 100 : Math.max(0, Math.min(100, saved));
+  player.setVolume(vol);
   player.unMute();
   player.playVideo();
 }

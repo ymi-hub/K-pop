@@ -196,7 +196,10 @@ export { TranslationCard };
 
 export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWordPress, onLineSyncPress, onTranslationChange }: Props) {
   const scrollRef = useRef<ScrollView>(null);
-  const scrollHeightRef = useRef(height * 0.4);
+  const scrollViewHeightRef = useRef(height * 0.55);
+  // 각 라인의 실제 Y 위치와 높이 (onLayout으로 직접 측정)
+  const lineLayoutsRef = useRef<{ y: number; h: number }[]>([]);
+
   const [translatedIdx, setTranslatedIdx] = useState<number | null>(null);
   const [translatedText, setTranslatedText] = useState('');
   const [translating, setTranslating] = useState(false);
@@ -206,18 +209,14 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
     timer: ReturnType<typeof setTimeout>;
   } | null>(null);
 
-  // 실제 행 높이: paddingVertical(10*2) + lineHeight(44) + marginBottom(4) = 68px
-  const ROW_H = 68;
-
   useEffect(() => {
-    if (currentLineIndex >= 0) {
-      // 상단 여백(hint + padding) 약 56px
-      const topOffset = 56;
-      const lineY = topOffset + currentLineIndex * ROW_H;
-      // 현재 행이 스크롤 뷰 중앙에 오도록
-      const y = lineY - scrollHeightRef.current / 2 + ROW_H / 2;
-      scrollRef.current?.scrollTo({ y: Math.max(0, y), animated: true });
-    }
+    if (currentLineIndex < 0) return;
+    const layout = lineLayoutsRef.current[currentLineIndex];
+    if (!layout) return;
+    const viewH = scrollViewHeightRef.current;
+    // 현재 라인 중앙이 스크롤 뷰 중앙에 오도록
+    const y = layout.y - viewH / 2 + layout.h / 2;
+    scrollRef.current?.scrollTo({ y: Math.max(0, y), animated: true });
   }, [currentLineIndex]);
 
   const handleLineTap = (line: LyricLine, idx: number) => {
@@ -280,7 +279,7 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
         style={styles.container}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
-        onLayout={e => { scrollHeightRef.current = e.nativeEvent.layout.height; }}
+        onLayout={e => { scrollViewHeightRef.current = e.nativeEvent.layout.height; }}
       >
         <TouchableOpacity onPress={closeTranslation} activeOpacity={1} style={{ height: height * 0.08 }} />
 
@@ -291,7 +290,16 @@ export default function LyricsView({ lyrics, currentLineIndex, currentMs, onWord
           const isPast = lineIdx < currentLineIndex;
 
           return (
-            <View key={lineIdx} style={styles.lineBlock}>
+            <View
+              key={lineIdx}
+              style={styles.lineBlock}
+              onLayout={e => {
+                lineLayoutsRef.current[lineIdx] = {
+                  y: e.nativeEvent.layout.y,
+                  h: e.nativeEvent.layout.height,
+                };
+              }}
+            >
               <TouchableOpacity
                 style={[styles.lineWrapper, isActive && styles.lineWrapperActive]}
                 onPress={() => handleLineTap(line, lineIdx)}
