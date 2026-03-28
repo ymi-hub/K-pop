@@ -3,13 +3,13 @@ import { getFirestore, Firestore } from 'firebase/firestore';
 import { getAuth, Auth, GoogleAuthProvider } from 'firebase/auth';
 
 const firebaseConfig = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
-  measurementId: process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID,
+  apiKey: 'AIzaSyBPM4W4DyxuRPKusKf5VgJwl0oIjPFWEhc',
+  authDomain: 'k-pop-e9f48.firebaseapp.com',
+  projectId: 'k-pop-e9f48',
+  storageBucket: 'k-pop-e9f48.firebasestorage.app',
+  messagingSenderId: '843335185954',
+  appId: '1:843335185954:web:73cf32d90532373fe9bc7b',
+  measurementId: 'G-T7MN478EQN',
 };
 
 let app: FirebaseApp | null = null;

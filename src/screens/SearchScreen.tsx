@@ -36,6 +36,7 @@ interface MusicResult {
   album: string;
   albumArt: string;
   durationMs: number;
+  previewUrl?: string | null;
 }
 
 interface AlbumGroup {
@@ -56,86 +57,72 @@ function parseItunesData(data: any): MusicResult[] {
     album: r.collectionName ?? '',
     albumArt: r.artworkUrl100?.replace('100x100bb', '600x600bb') ?? '',
     durationMs: r.trackTimeMillis ?? 0,
+    previewUrl: r.previewUrl ?? null,
   }));
 }
 
-// ── iTunes Search ────────────────────────────────────
-// getBTSTracks와 동일한 패턴 사용 (KR 우선, US 폴백)
-async function searchItunes(query: string): Promise<MusicResult[]> {
-  const base = 'https://itunes.apple.com/search';
-  try {
-    // KR 먼저
-    const resKR = await fetch(
-      `${base}?term=${encodeURIComponent(query)}&media=music&entity=song&limit=50&country=KR&lang=ko_KR`,
-      { credentials: 'omit' }
-    );
-    const dataKR = resKR.ok ? await resKR.json() : { results: [] };
-    const krItems = parseItunesData(dataKR);
+// Cloudflare Worker 프록시 URL (iOS Safari용)
+// worker/ 폴더의 Cloudflare Worker 배포 후 URL 입력
+const ITUNES_PROXY = 'https://calm-block-18c0.webyoung0.workers.dev';
 
-    // US 병렬 없이 순차 조회 (KR과 응답 형식 동일)
-    const resUS = await fetch(
-      `${base}?term=${encodeURIComponent(query)}&media=music&entity=song&limit=50&country=US`,
-      { credentials: 'omit' }
-    );
-    const dataUS = resUS.ok ? await resUS.json() : { results: [] };
-    const usItems = parseItunesData(dataUS);
+// iOS/iPadOS 감지
+const isIOS = typeof navigator !== 'undefined' &&
+  /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-    // KR 우선, US에서 중복 없는 곡 추가
-    const seen = new Set(krItems.map(r => r.id));
-    return [...krItems, ...usItems.filter(r => !seen.has(r.id))];
-  } catch {
-    return [];
-  }
+// JSONP — 데스크탑 브라우저용 (iOS는 itunes.apple.com 차단)
+function jsonpFetch(url: string, timeout = 10000): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const cb = `_itunesCb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const script = document.createElement('script');
+    const timer = setTimeout(() => { cleanup(); reject(new Error('timeout')); }, timeout);
+    function cleanup() {
+      clearTimeout(timer);
+      delete (window as any)[cb];
+      script.parentNode?.removeChild(script);
+    }
+    (window as any)[cb] = (data: any) => { cleanup(); resolve(data); };
+    script.src = `${url}&callback=${cb}`;
+    script.onerror = () => { cleanup(); reject(new Error('script error')); };
+    document.head.appendChild(script);
+  });
 }
 
-// ── lrclib Search (폴백) ─────────────────────────────
-async function searchLrcLib(query: string): Promise<MusicResult[]> {
+// ── iTunes Search ─────────────────────────────────────
+let _lastSearchDebug = '';
+async function searchItunes(query: string): Promise<MusicResult[]> {
+  const q = encodeURIComponent(query);
+  _lastSearchDebug = isIOS ? '프록시 요청 중...' : 'JSONP 요청 중...';
   try {
-    const res = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(query)}`);
-    if (!res.ok) return [];
-    const data: any[] = await res.json();
-    return data.slice(0, 50).map(r => ({
-      id: `lrc_${r.id}`,
-      name: r.trackName ?? '',
-      artist: r.artistName ?? '',
-      album: r.albumName ?? '',
-      albumArt: '',
-      durationMs: Math.round((r.duration ?? 0) * 1000),
-    }));
-  } catch { return []; }
+    let krItems: MusicResult[], usItems: MusicResult[];
+    if (isIOS && ITUNES_PROXY) {
+      // iOS: Cloudflare Worker 프록시 경유
+      const [resKR, resUS] = await Promise.all([
+        fetch(`${ITUNES_PROXY}?q=${q}&country=KR`, { credentials: 'omit' }),
+        fetch(`${ITUNES_PROXY}?q=${q}&country=US`, { credentials: 'omit' }),
+      ]);
+      [krItems, usItems] = [parseItunesData(await resKR.json()), parseItunesData(await resUS.json())];
+    } else {
+      // 데스크탑: JSONP 직접 호출
+      const base = 'https://itunes.apple.com/search';
+      const [dataKR, dataUS] = await Promise.all([
+        jsonpFetch(`${base}?term=${q}&media=music&entity=song&limit=50&country=KR`),
+        jsonpFetch(`${base}?term=${q}&media=music&entity=song&limit=50&country=US`),
+      ]);
+      [krItems, usItems] = [parseItunesData(dataKR), parseItunesData(dataUS)];
+    }
+    const seen = new Set(krItems.map(r => r.id));
+    const results = [...krItems, ...usItems.filter(r => !seen.has(r.id))];
+    _lastSearchDebug = `성공: ${results.length}곡`;
+    return results;
+  } catch (e: any) {
+    _lastSearchDebug = `오류: ${e?.message ?? e}`;
+    return [];
+  }
 }
 
 // 이름 정규화: 소문자 + 특수문자 제거 (한글 포함)
 function normalizeName(s: string): string {
   return s.toLowerCase().replace(/[\s\-_',.!?()\[\]]/g, '').replace(/[^a-z0-9가-힣]/g, '');
-}
-
-// iTunes 곡이 lrclib 결과에 매칭되는지 확인
-function hasLyricsMatch(name: string, lrcNames: string[]): boolean {
-  const n = normalizeName(name);
-  if (!n) return false;
-  return lrcNames.some(ln => {
-    if (!ln) return false;
-    return ln === n || (n.length > 3 && ln.includes(n)) || (ln.length > 3 && n.includes(ln));
-  });
-}
-
-// lrclib 조회 (타임아웃 3초)
-async function fetchLrcNames(query: string): Promise<string[]> {
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 3000);
-    const res = await fetch(
-      `https://lrclib.net/api/search?q=${encodeURIComponent(query)}`,
-      { credentials: 'omit', signal: ctrl.signal }
-    );
-    clearTimeout(timer);
-    if (!res.ok) return [];
-    const data: any[] = await res.json();
-    return data.slice(0, 100).map(r => normalizeName(r.trackName ?? ''));
-  } catch {
-    return [];
-  }
 }
 
 // 곡명에서 괄호/대시 이후 버전 표기 제거 (feat, remix, ver, edit 등)
@@ -155,10 +142,8 @@ function deduplicateTracks(results: MusicResult[]): MusicResult[] {
 }
 
 async function searchMusic(query: string): Promise<MusicResult[]> {
-  // iTunes 조회 (lrclib 필터 제거 — OST 등 lrclib 미등록 곡도 표시)
-  const itunes = await searchItunes(query);
-  const withImage = deduplicateTracks(itunes.filter(r => !!r.albumArt));
-  return withImage;
+  const results = await searchItunes(query);
+  return deduplicateTracks(results.filter(r => !!r.albumArt));
 }
 
 // ── 앨범별 그룹화 ─────────────────────────────────────
@@ -182,7 +167,7 @@ function resultToTrack(r: MusicResult): Track {
   return {
     id: r.id, name: r.name, artists: [r.artist],
     album: r.album, albumArt: r.albumArt, durationMs: r.durationMs,
-    previewUrl: null, spotifyUri: '',
+    previewUrl: r.previewUrl ?? null, spotifyUri: '',
   };
 }
 
@@ -345,7 +330,10 @@ export default function SearchScreen({ onPlayTrack, onPlaylistChange, onRemoveFr
         contentContainerStyle={{ paddingBottom: TAB_BAR_H + 80 }}
         ListEmptyComponent={
           !searching && query.trim().length >= 2
-            ? <View style={styles.noResult}><Text style={styles.noResultText}>검색 결과가 없습니다</Text></View>
+            ? <View style={styles.noResult}>
+                <Text style={styles.noResultText}>검색 결과가 없습니다</Text>
+                <Text style={{ color: '#888', fontSize: 11, marginTop: 6, textAlign: 'center' }}>{_lastSearchDebug}</Text>
+              </View>
             : null
         }
         renderItem={({ item: group }) => {

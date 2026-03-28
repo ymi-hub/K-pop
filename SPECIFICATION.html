@@ -218,7 +218,7 @@
     
     <div class="info">
         <p><strong>프로젝트명:</strong> K-pop English</p>
-        <p><strong>버전:</strong> 1.3.0</p>
+        <p><strong>버전:</strong> 1.4.0</p>
         <p><strong>작성일:</strong> 2026년 3월 28일</p>
         <p><strong>기술 스택:</strong> React Native Web, Expo SDK 55, TypeScript, iTunes API, YouTube IFrame API, Firebase</p>
         <p><strong>플랫폼:</strong> Web (Firebase Hosting)</p>
@@ -1109,6 +1109,19 @@ try {
             <th>주요 변경 내용</th>
         </tr>
         <tr>
+            <td>1.4.0</td>
+            <td>2026-03-28</td>
+            <td>
+                iOS Safari 검색 수정 — Cloudflare Worker 프록시 도입 (itunes.apple.com iOS 차단 우회)<br>
+                Google 로그인 수정 — Firebase 설정 하드코딩 (Expo env var 주입 실패 문제 해결)<br>
+                로그인 에러 메시지 UI 추가 (버튼 하단 표시)<br>
+                퀴즈 앨범 아트 표시 (SavedWord에 albumArt 저장)<br>
+                플레이리스트 삭제 시 즐겨찾기·최근 재생에서도 제거<br>
+                자동 캐시 클리어 — 새 버전 배포 시 구버전 번들 감지 후 강제 리로드<br>
+                Firebase Hosting index.html no-cache 헤더 강화
+            </td>
+        </tr>
+        <tr>
             <td>1.3.0</td>
             <td>2026-03-28</td>
             <td>
@@ -1240,7 +1253,7 @@ interface VocabEntry {
     <div class="footer">
         <p>K-pop English 프로젝트 정의서</p>
         <p>최종 업데이트: 2026년 3월 28일</p>
-        <p>버전: 1.3.0</p>
+        <p>버전: 1.4.0</p>
         <p>© 2026 All Rights Reserved</p>
     </div>
 </div>

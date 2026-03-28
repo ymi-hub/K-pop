@@ -79,6 +79,33 @@ class ErrorBoundary extends Component<
   }
 }
 
+// ── 버전 체크 + 자동 캐시 클리어 ─────────────────────────────
+// 새 버전 배포 감지 시 YouTube 검색 캐시를 클리어하고 새 번들을 강제 로드
+// (사용자 데이터 - 플레이리스트, 즐겨찾기, 최근 재생 - 는 보존)
+async function checkAndClearOnUpdate(): Promise<void> {
+  try {
+    // 현재 실행 중인 번들 URL (DOM에서 읽음)
+    const scripts = document.querySelectorAll('script[src*="/_expo/static/js/web/"]');
+    const currentSrc = (scripts[0] as HTMLScriptElement | undefined)?.src ?? '';
+
+    // 최신 index.html을 캐시 없이 가져와서 번들 해시 비교
+    const res = await fetch('/', { cache: 'no-store' });
+    if (!res.ok) return;
+    const html = await res.text();
+    const match = html.match(/src="(\/_expo\/static\/js\/web\/index-[^"]+\.js)"/);
+    const latestSrc = match?.[1] ?? '';
+
+    if (latestSrc && currentSrc && !currentSrc.endsWith(latestSrc)) {
+      // 새 버전 배포됨 — 검색 캐시만 클리어 (사용자 데이터 보존)
+      localStorage.removeItem('kpop_yt_cache');
+      window.location.reload();
+    }
+  } catch {}
+}
+if (typeof window !== 'undefined') {
+  checkAndClearOnUpdate();
+}
+
 export default function App() {
   const [initLog, setInitLog] = useState<string[]>(['App started']);
   const [screen, setScreen] = useState<Screen>('home');
@@ -101,6 +128,7 @@ export default function App() {
   });
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const likedUnsubRef = useRef<(() => void) | null>(null);
   const recentUnsubRef = useRef<(() => void) | null>(null);
   const playlistUnsubRef = useRef<(() => void) | null>(null);
@@ -179,15 +207,25 @@ export default function App() {
   }, []);
 
   const handleGoogleLogin = async () => {
-    if (!auth) return;
+    if (!auth) {
+      setAuthError('Firebase 미설정: .env에 Firebase 키가 필요합니다.');
+      return;
+    }
     setAuthLoading(true);
+    setAuthError(null);
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (e: any) {
       if (e.code === 'auth/popup-blocked') {
         try { await signInWithRedirect(auth, googleProvider); } catch {}
-      } else if (e.code !== 'auth/popup-closed-by-user') {
-        console.error('Login error:', e.code);
+      } else if (e.code === 'auth/popup-closed-by-user') {
+        // 사용자가 직접 닫음 — 무시
+      } else if (e.code === 'auth/operation-not-allowed') {
+        setAuthError('Firebase Console에서 Google 로그인을 활성화해주세요.');
+      } else if (e.code === 'auth/unauthorized-domain') {
+        setAuthError('Firebase Console 승인 도메인에 이 사이트를 추가해주세요.');
+      } else {
+        setAuthError(`로그인 오류: ${e.code ?? e.message}`);
       }
     } finally {
       setAuthLoading(false);
@@ -519,6 +557,7 @@ export default function App() {
             onSearchPress={() => setScreen('search')}
             user={user}
             authLoading={authLoading}
+            authError={authError}
             onLogin={handleGoogleLogin}
             onLogout={handleLogout}
           />

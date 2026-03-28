@@ -91,6 +91,7 @@ interface Props {
   onSearchPress?: () => void;
   user?: User | null;
   authLoading?: boolean;
+  authError?: string | null;
   onLogin?: () => void;
   onLogout?: () => void;
 }
@@ -583,7 +584,7 @@ const albumListStyles = StyleSheet.create({
 /* ═══════════════════════════════════════════════
    홈 탭 — Apple Music 스타일 홈 페이지
 ══════════════════════════════════════════════ */
-function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSelectTrack, onToggleLike, onVocabPress, onOpenAlbum, user, authLoading, onLogin, onLogout, onSearchPress, onRemoveFromPlaylist }: {
+function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSelectTrack, onToggleLike, onVocabPress, onOpenAlbum, user, authLoading, authError, onLogin, onLogout, onSearchPress, onRemoveFromPlaylist }: {
   tracks: Track[];
   currentTrack: Track | null;
   isPlaying: boolean;
@@ -595,6 +596,7 @@ function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSe
   onOpenAlbum: (name: string, art: string, tracks: Track[]) => void;
   user?: User | null;
   authLoading?: boolean;
+  authError?: string | null;
   onLogin?: () => void;
   onLogout?: () => void;
   onSearchPress?: () => void;
@@ -712,17 +714,24 @@ function HomeTab({ tracks, currentTrack, isPlaying, likedIds, recentTracks, onSe
           </TouchableOpacity>
         </View>
       ) : (
-        <TouchableOpacity
-          style={styles.authLoginBtn}
-          onPress={onLogin}
-          disabled={authLoading}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.googleIcon}>G</Text>
-          <Text style={styles.authLoginText}>
-            {authLoading ? '로그인 중...' : 'Google로 로그인 — 모든 기기 동기화'}
-          </Text>
-        </TouchableOpacity>
+        <View>
+          <TouchableOpacity
+            style={styles.authLoginBtn}
+            onPress={onLogin}
+            disabled={authLoading}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.googleIcon}>G</Text>
+            <Text style={styles.authLoginText}>
+              {authLoading ? '로그인 중...' : 'Google로 로그인 — 모든 기기 동기화'}
+            </Text>
+          </TouchableOpacity>
+          {authError && (
+            <Text style={{ color: '#FF3B30', fontSize: 12, marginTop: 6, textAlign: 'center' }}>
+              {authError}
+            </Text>
+          )}
+        </View>
       )}
 
       {/* 헤더 */}
@@ -1158,7 +1167,7 @@ function TrackRow({ item, currentTrack, isPlaying, likedIds, onSelect, onLike }:
    메인 HomeScreen
 ══════════════════════════════════════════════ */
 const HomeScreen = React.memo(function HomeScreen({
-  tracks, currentTrack, isPlaying, likedIds, recentTracks, onSelectTrack, onToggleLike, onOpenAlbum, onVocabPress, onSearchPress, onRemoveFromPlaylist, user, authLoading, onLogin, onLogout,
+  tracks, currentTrack, isPlaying, likedIds, recentTracks, onSelectTrack, onToggleLike, onOpenAlbum, onVocabPress, onSearchPress, onRemoveFromPlaylist, user, authLoading, authError, onLogin, onLogout,
 }: Props) {
   return (
     <SafeAreaView style={styles.container}>
@@ -1177,6 +1186,7 @@ const HomeScreen = React.memo(function HomeScreen({
         onOpenAlbum={onOpenAlbum}
         user={user}
         authLoading={authLoading}
+        authError={authError}
         onLogin={onLogin}
         onLogout={onLogout}
       />
