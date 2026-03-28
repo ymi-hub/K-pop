@@ -8,6 +8,7 @@ declare global {
 
 let player: any = null;
 let apiReadyPromise: Promise<void> | null = null;
+let _currentVol = 100;
 
 export const YT_STATE = {
   ENDED: 0,
@@ -67,12 +68,20 @@ export function createYTPlayer(
       events: {
         onReady: () => {
           const saved = parseInt(localStorage.getItem('kpop_volume') ?? '100', 10);
-          const vol = isNaN(saved) ? 100 : Math.max(0, Math.min(100, saved));
+          _currentVol = isNaN(saved) ? 100 : Math.max(0, Math.min(100, saved));
           player.unMute();
-          player.setVolume(vol);
+          player.setVolume(_currentVol);
           resolve();
         },
-        onStateChange: (e: any) => onStateChange(e.data),
+        onStateChange: (e: any) => {
+          // PLAYING 상태 진입 시마다 volume 강제 적용
+          // (loadVideoById 후 YouTube가 내부적으로 mute/volume 리셋할 수 있음)
+          if (e.data === 1) {
+            player.unMute();
+            player.setVolume(_currentVol);
+          }
+          onStateChange(e.data);
+        },
       },
     });
   });
@@ -81,23 +90,18 @@ export function createYTPlayer(
 export function ytLoadVideo(videoId: string): void {
   if (!player) return;
   player.loadVideoById(videoId);
-  const saved = parseInt(localStorage.getItem('kpop_volume') ?? '100', 10);
-  const vol = isNaN(saved) ? 100 : Math.max(0, Math.min(100, saved));
-  player.setVolume(vol);
-  player.unMute();
+  // volume은 onStateChange(PLAYING)에서 적용됨
 }
 
 export function ytPlay(): void {
   if (!player) return;
-  const saved = parseInt(localStorage.getItem('kpop_volume') ?? '100', 10);
-  const vol = isNaN(saved) ? 100 : Math.max(0, Math.min(100, saved));
-  player.setVolume(vol);
-  player.unMute();
   player.playVideo();
+  // volume은 onStateChange(PLAYING)에서 적용됨
 }
 
 export function ytSetVolume(vol: number): void {
   const v = Math.max(0, Math.min(100, vol));
+  _currentVol = v;
   player?.setVolume(v);
   try { localStorage.setItem('kpop_volume', String(v)); } catch {}
 }
