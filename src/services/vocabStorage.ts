@@ -6,6 +6,7 @@ const STORAGE_KEY = 'kpop_vocab_list';
 export interface SavedWord extends VocabEntry {
   savedAt: number;
   songName: string;
+  albumArt?: string;
 }
 
 // ── localStorage 기본 조작 ─────────────────────────────────
@@ -34,14 +35,15 @@ async function persistAll(words: SavedWord[], uid: string | null) {
 export async function saveWord(
   vocab: VocabEntry,
   songName: string,
-  uid: string | null
+  uid: string | null,
+  albumArt?: string,
 ): Promise<boolean> {
   const words = getSavedWords();
   const existing = words.findIndex((w) => w.word === vocab.word);
   if (existing >= 0) {
-    words[existing] = { ...vocab, savedAt: words[existing].savedAt, songName };
+    words[existing] = { ...vocab, savedAt: words[existing].savedAt, songName, albumArt };
   } else {
-    words.unshift({ ...vocab, savedAt: Date.now(), songName });
+    words.unshift({ ...vocab, savedAt: Date.now(), songName, albumArt });
   }
   await persistAll(words, uid);
   return existing < 0;

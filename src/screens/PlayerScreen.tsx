@@ -479,7 +479,7 @@ export default function PlayerScreen({
       )}
 
       {activeVocab && (
-        <VocabCard vocab={activeVocab} songName={track.name} onClose={() => setActiveVocab(null)} />
+        <VocabCard vocab={activeVocab} songName={track.name} albumArt={track.albumArt} onClose={() => setActiveVocab(null)} />
       )}
     </Animated.View>
   );

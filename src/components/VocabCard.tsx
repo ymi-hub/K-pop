@@ -15,6 +15,7 @@ import Icon from './Icon';
 interface Props {
   vocab: VocabEntry;
   songName: string;
+  albumArt?: string;
   onClose: () => void;
 }
 
@@ -24,7 +25,7 @@ const difficultyColor = {
   hard: '#FC3C44',
 };
 
-export default function VocabCard({ vocab, songName, onClose }: Props) {
+export default function VocabCard({ vocab, songName, albumArt, onClose }: Props) {
   const slideAnim = useRef(new Animated.Value(200)).current;
   const [saved, setSaved] = useState(() => isWordSaved(vocab.word));
 
@@ -40,7 +41,7 @@ export default function VocabCard({ vocab, songName, onClose }: Props) {
   }, [vocab.word]);
 
   const handleSave = () => {
-    saveWord(vocab, songName);
+    saveWord(vocab, songName, null, albumArt);
     setSaved(true);
   };
 

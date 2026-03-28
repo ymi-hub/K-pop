@@ -10,6 +10,7 @@ import {
 import { colors, spacing, borderRadius } from '../theme';
 import { getSavedWords, SavedWord } from '../services/vocabStorage';
 import Icon from '../components/Icon';
+import { Image } from 'expo-image';
 import { TAB_BAR_H } from '../components/TabBar';
 import { MINI_PLAYER_H } from '../components/MiniPlayer';
 
@@ -27,6 +28,7 @@ interface QuizQuestion {
   options: string[];
   pronunciation: string;
   songName: string;
+  albumArt?: string;
 }
 
 function playSound(type: 'correct' | 'wrong') {
@@ -78,7 +80,7 @@ function buildQuestions(words: SavedWord[]): QuizQuestion[] {
 
     const options = [correct, ...wrongAnswers].sort(() => Math.random() - 0.5);
 
-    return { type, prompt, correct, options, pronunciation: w.pronunciation, songName: w.songName };
+    return { type, prompt, correct, options, pronunciation: w.pronunciation, songName: w.songName, albumArt: w.albumArt };
   });
 }
 
@@ -272,7 +274,11 @@ export default function QuizScreen({ onBack, hasMiniPlayer }: Props) {
 
       {/* Character + Speech Bubble */}
       <View style={styles.characterArea}>
-        <Text style={styles.character}>🐰</Text>
+        {question.albumArt ? (
+          <Image source={{ uri: question.albumArt }} style={styles.albumArt} contentFit="cover" />
+        ) : (
+          <Text style={styles.character}>🐰</Text>
+        )}
         <View style={styles.speechBubble}>
           <Text style={styles.promptText}>{question.prompt}</Text>
           {question.type === 'en-to-ko' && question.pronunciation ? (
@@ -523,6 +529,13 @@ const styles = StyleSheet.create({
   character: {
     fontSize: 90,
     lineHeight: 96,
+  },
+  albumArt: {
+    width: 90,
+    height: 90,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
   },
   speechBubble: {
     flex: 1,
