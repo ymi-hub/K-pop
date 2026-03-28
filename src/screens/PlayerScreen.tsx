@@ -12,8 +12,8 @@ import { Track, LyricLine, VocabEntry } from '../types';
 import VocabCard from '../components/VocabCard';
 import LyricsView, { TranslationCard, TranslationCardProps } from '../components/LyricsView';
 import Icon from '../components/Icon';
-import { ytSetVolume, ytGetVolume } from '../services/youtubePlayer';
-import { audioSetVolume } from '../services/audioPlayer';
+import { ytSetVolume, ytGetVolume, ytMute, ytUnMute, ytIsMuted } from '../services/youtubePlayer';
+import { audioSetVolume, audioSetMuted } from '../services/audioPlayer';
 
 const { width, height: SCREEN_H } = Dimensions.get('window');
 const ART_SIZE = Math.min(width - 56, SCREEN_H * 0.36);
@@ -122,11 +122,14 @@ if (typeof document !== 'undefined' && !document.getElementById('__vol_style__')
   document.head.appendChild(s);
 }
 
+const isIOS = typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
 function VolumeRow() {
   const [vol, setVol] = useState(() => {
     const saved = parseInt(localStorage.getItem('kpop_volume') ?? '', 10);
     return isNaN(saved) ? 100 : saved;
   });
+  const [muted, setMuted] = useState(false);
 
   const applyVolume = (v: number) => {
     const clamped = Math.max(0, Math.min(100, Math.round(v)));
@@ -134,6 +137,31 @@ function VolumeRow() {
     ytSetVolume(clamped);
     audioSetVolume(clamped);
   };
+
+  const toggleMute = () => {
+    const next = !muted;
+    setMuted(next);
+    if (next) { ytMute(); audioSetMuted(true); }
+    else       { ytUnMute(); audioSetMuted(false); }
+  };
+
+  // iOS: 음량 제어 불가 → 음소거 버튼만 표시
+  if (isIOS) {
+    return (
+      <View style={[styles.volumeRow, { justifyContent: 'center' }]}>
+        <TouchableOpacity onPress={toggleMute} hitSlop={{ top: 12, bottom: 12, left: 24, right: 24 }}>
+          <Icon
+            name={muted ? 'volume-off' : 'volume-high'}
+            size={24}
+            color={muted ? colors.primary : 'rgba(255,255,255,0.55)'}
+          />
+        </TouchableOpacity>
+        <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, marginLeft: 10 }}>
+          {muted ? '음소거' : '음량은 기기 버튼으로 조절'}
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.volumeRow}>

@@ -51,6 +51,10 @@ export function audioSetVolume(vol: number): void {
   if (player) player.volume = Math.max(0, Math.min(100, vol)) / 100;
 }
 
+export function audioSetMuted(muted: boolean): void {
+  if (player) player.muted = muted;
+}
+
 export function audioSetLoop(loop: boolean): void {
   if (player) player.loop = loop;
 }

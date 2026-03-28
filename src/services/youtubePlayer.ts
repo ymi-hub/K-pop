@@ -106,6 +106,10 @@ export function ytSetVolume(vol: number): void {
   try { localStorage.setItem('kpop_volume', String(v)); } catch {}
 }
 
+export function ytMute(): void { player?.mute(); }
+export function ytUnMute(): void { player?.unMute(); }
+export function ytIsMuted(): boolean { return player?.isMuted?.() ?? false; }
+
 export function ytGetVolume(): number {
   return player?.getVolume?.() ?? 100;
 }
