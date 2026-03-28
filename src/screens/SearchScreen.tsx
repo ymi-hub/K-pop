@@ -66,14 +66,16 @@ async function searchItunes(query: string): Promise<MusicResult[]> {
   try {
     // KR 먼저
     const resKR = await fetch(
-      `${base}?term=${encodeURIComponent(query)}&media=music&entity=song&limit=50&country=KR&lang=ko_KR`
+      `${base}?term=${encodeURIComponent(query)}&media=music&entity=song&limit=50&country=KR&lang=ko_KR`,
+      { credentials: 'omit' }
     );
     const dataKR = resKR.ok ? await resKR.json() : { results: [] };
     const krItems = parseItunesData(dataKR);
 
     // US 병렬 없이 순차 조회 (KR과 응답 형식 동일)
     const resUS = await fetch(
-      `${base}?term=${encodeURIComponent(query)}&media=music&entity=song&limit=50&country=US`
+      `${base}?term=${encodeURIComponent(query)}&media=music&entity=song&limit=50&country=US`,
+      { credentials: 'omit' }
     );
     const dataUS = resUS.ok ? await resUS.json() : { results: [] };
     const usItems = parseItunesData(dataUS);
